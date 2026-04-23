@@ -63,12 +63,23 @@ function getPlatformWallet(cluster: "devnet" | "mainnet"): string {
   return w;
 }
 
+function sanitizeRpcUrl(raw: string | undefined): string {
+  if (!raw) return "";
+  let v = raw.trim().replace(/^["']|["']$/g, "");
+  const eq = v.indexOf("=");
+  if (eq !== -1 && /^[A-Z_][A-Z0-9_]*$/.test(v.slice(0, eq).trim())) {
+    v = v.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+  }
+  return v.startsWith("http://") || v.startsWith("https://") ? v : "";
+}
+
 function getRpc(cluster: "devnet" | "mainnet"): string {
   const envVar =
     cluster === "mainnet" ? process.env.SOLANA_MAINNET_RPC_URL : process.env.SOLANA_DEVNET_RPC_URL;
-  const present = Boolean(envVar && envVar.trim());
+  const sanitized = sanitizeRpcUrl(envVar);
+  const present = Boolean(sanitized);
   const url =
-    (envVar && envVar.trim()) ||
+    sanitized ||
     (cluster === "mainnet"
       ? "https://api.mainnet-beta.solana.com"
       : "https://api.devnet.solana.com");

@@ -128,8 +128,8 @@ export function Hero() {
           )}
           style={{ transitionDelay: "0.28s" }}
         >
-          Create, configure, and mint SPL tokens with a clean 3-step wizard. Pay once,
-          mint instantly, then hand off to Raydium for liquidity.
+          Create your SPL token in 3 simple steps. Connect wallet, set token details,
+          mint instantly.
         </p>
 
         <div

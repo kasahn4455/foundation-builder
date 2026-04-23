@@ -133,9 +133,13 @@ export async function mintToken({
   const connection = new Connection(rpcUrl, "confirmed");
   const payer = new PublicKey(assertSolanaAddress(payerAddress, "Payer wallet address"));
 
+  // Always rebuild a fresh mint keypair + transaction. No state is reused across retries.
   const mintKeypair = Keypair.generate();
   const mintPk = mintKeypair.publicKey;
   const ata = getAssociatedTokenAddressSync(mintPk, payer);
+
+  // Do all slow network calls (rent lookup) BEFORE fetching blockhash, so the
+  // blockhash is as fresh as possible when the wallet prompt appears.
   const lamportsForMint = await getMinimumBalanceForRentExemptMint(connection);
 
   // Compute base units = supply * 10^decimals using BigInt
@@ -143,103 +147,106 @@ export async function mintToken({
   const factor = BigInt(10) ** BigInt(decimals);
   const baseUnits = supplyBI * factor;
 
-  let blockhash: string;
-  let lastValidBlockHeight: number;
-  try {
-    const bh = await connection.getLatestBlockhash("confirmed");
-    blockhash = bh.blockhash;
-    lastValidBlockHeight = bh.lastValidBlockHeight;
-  } catch (err) {
-    console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
-    if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
+  async function freshBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
+    try {
+      // "finalized" gives a blockhash all validators agree on — maximizes the
+      // window before "block height exceeded" while the user signs in the wallet.
+      return await connection.getLatestBlockhash("finalized");
+    } catch (err) {
+      console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
+      if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
+        throw new Error(
+          "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
+            "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC and reload.",
+        );
+      }
       throw new Error(
-        "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
-          "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC and reload.",
+        `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    throw new Error(
-      `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
-    );
   }
 
-  const tx = new Transaction({
-    feePayer: payer,
-    blockhash,
-    lastValidBlockHeight,
-  });
-
-  tx.add(
-    SystemProgram.createAccount({
-      fromPubkey: payer,
-      newAccountPubkey: mintPk,
-      lamports: lamportsForMint,
-      space: MINT_SIZE,
-      programId: TOKEN_PROGRAM_ID,
-    }),
-    createInitializeMint2Instruction(
-      mintPk,
-      decimals,
-      payer, // mint authority (may be revoked below)
-      payer, // freeze authority (may be revoked below)
-      TOKEN_PROGRAM_ID,
-    ),
-    createAssociatedTokenAccountInstruction(payer, ata, payer, mintPk),
-    createMintToInstruction(mintPk, ata, payer, baseUnits, [], TOKEN_PROGRAM_ID),
-  );
-
-  if (revokeFreeze) {
+  function buildTx(blockhash: string, lastValidBlockHeight: number): Transaction {
+    const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight });
     tx.add(
-      createSetAuthorityInstruction(
+      SystemProgram.createAccount({
+        fromPubkey: payer,
+        newAccountPubkey: mintPk,
+        lamports: lamportsForMint,
+        space: MINT_SIZE,
+        programId: TOKEN_PROGRAM_ID,
+      }),
+      createInitializeMint2Instruction(
         mintPk,
+        decimals,
         payer,
-        AuthorityType.FreezeAccount,
-        null,
-        [],
+        payer,
         TOKEN_PROGRAM_ID,
       ),
+      createAssociatedTokenAccountInstruction(payer, ata, payer, mintPk),
+      createMintToInstruction(mintPk, ata, payer, baseUnits, [], TOKEN_PROGRAM_ID),
     );
-  }
-  if (revokeMint) {
-    tx.add(
-      createSetAuthorityInstruction(
-        mintPk,
-        payer,
-        AuthorityType.MintTokens,
-        null,
-        [],
-        TOKEN_PROGRAM_ID,
-      ),
-    );
+    if (revokeFreeze) {
+      tx.add(
+        createSetAuthorityInstruction(
+          mintPk, payer, AuthorityType.FreezeAccount, null, [], TOKEN_PROGRAM_ID,
+        ),
+      );
+    }
+    if (revokeMint) {
+      tx.add(
+        createSetAuthorityInstruction(
+          mintPk, payer, AuthorityType.MintTokens, null, [], TOKEN_PROGRAM_ID,
+        ),
+      );
+    }
+    // Mint keypair must sign the createAccount; wallet signs as fee payer.
+    tx.partialSign(mintKeypair);
+    return tx;
   }
 
-  // Mint keypair must sign the createAccount; wallet signs as fee payer.
-  tx.partialSign(mintKeypair);
+  // Fetch blockhash as late as possible — immediately before building & signing.
+  let { blockhash, lastValidBlockHeight } = await freshBlockhash();
+  let tx = buildTx(blockhash, lastValidBlockHeight);
 
   let signature: string;
-  if (provider.signAndSendTransaction) {
-    // Provider may strip our partialSign in some implementations — fall back to manual path.
-    try {
-      const res = await provider.signAndSendTransaction(tx);
-      signature = res.signature;
-    } catch {
+  try {
+    if (provider.signAndSendTransaction) {
+      try {
+        const res = await provider.signAndSendTransaction(tx);
+        signature = res.signature;
+      } catch {
+        // Fallback path: rebuild with a brand-new blockhash so we don't reuse a stale one
+        // that aged out during the failed first attempt.
+        ({ blockhash, lastValidBlockHeight } = await freshBlockhash());
+        tx = buildTx(blockhash, lastValidBlockHeight);
+        const signed = await provider.signTransaction(tx);
+        signature = await sendAndConfirmRawTransaction(
+          connection,
+          Buffer.from(signed.serialize()),
+          { commitment: "confirmed" },
+        );
+      }
+    } else {
       const signed = await provider.signTransaction(tx);
-      signature = await sendAndConfirmRawTransaction(
-        connection,
-        Buffer.from(signed.serialize()),
-        { commitment: "confirmed" },
+      signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+      });
+    }
+
+    await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      "confirmed",
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
+      throw new Error(
+        "Mint transaction expired before it was confirmed on-chain (network was slow or signing took too long). Please click Retry to build a fresh transaction.",
       );
     }
-  } else {
-    const signed = await provider.signTransaction(tx);
-    signature = await connection.sendRawTransaction(signed.serialize(), {
-      skipPreflight: false,
-    });
+    throw err;
   }
-
-  await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
-  );
 
   return {
     mintAddress: mintPk.toBase58(),

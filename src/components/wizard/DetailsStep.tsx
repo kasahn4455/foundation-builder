@@ -245,7 +245,7 @@ export function DetailsStep() {
           unselected (unchecked), the authority will be transferred to your wallet.
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-3 items-stretch">
           <AuthorityCard
             title="Revoke Freeze"
             desc="Freeze Authority allows freezing token accounts. Revoke it to prevent tokens from being frozen."

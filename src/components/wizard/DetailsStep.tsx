@@ -445,14 +445,16 @@ function AuthorityCard({
         </span>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">{desc}</p>
-      <div
-        className={`mt-auto pt-4 rounded-xl px-3 py-2 text-center text-sm font-medium ${
-          checked
-            ? "bg-gradient-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground border border-border"
-        }`}
-      >
-        {checked ? "Selected (Will Revoke)" : "Not Selected"}
+      <div className="mt-auto pt-4">
+        <div
+          className={`rounded-xl px-3 py-2 text-center text-sm font-medium ${
+            checked
+              ? "bg-gradient-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground border border-border"
+          }`}
+        >
+          {checked ? "Selected (Will Revoke)" : "Not Selected"}
+        </div>
       </div>
     </button>
   );

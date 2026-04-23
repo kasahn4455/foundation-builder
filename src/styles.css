@@ -165,6 +165,66 @@
   width: 100%;
 }
 
+/* Premium button interactions */
+.btn-primary {
+  position: relative;
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.3s ease;
+  will-change: transform, box-shadow;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover {
+    transform: translateY(-1px) scale(1.025);
+    box-shadow:
+      0 0 0 1px oklch(1 0 0 / 8%) inset,
+      0 12px 32px -8px oklch(0.66 0.22 290 / 55%),
+      0 0 60px -8px oklch(0.68 0.18 250 / 45%);
+    filter: brightness(1.06) saturate(1.05);
+  }
+}
+.btn-primary:active {
+  transform: translateY(0) scale(0.985);
+  transition-duration: 0.1s;
+}
+.btn-primary:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px oklch(0.66 0.22 290 / 60%);
+}
+
+.btn-secondary {
+  position: relative;
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+  will-change: transform, background-color, border-color;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn-secondary:hover {
+    transform: translateY(-1px) scale(1.015);
+    border-color: oklch(0.66 0.22 290 / 35%);
+    background-color: oklch(1 0 0 / 6%);
+    box-shadow: 0 0 24px -10px oklch(0.66 0.22 290 / 35%);
+  }
+}
+.btn-secondary:active {
+  transform: translateY(0) scale(0.99);
+  transition-duration: 0.1s;
+}
+.btn-secondary:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px oklch(0.66 0.22 290 / 45%);
+}
+
 /* Scroll reveal — subtle, premium */
 .reveal {
   opacity: 0;

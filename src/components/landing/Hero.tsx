@@ -12,16 +12,25 @@ export function Hero() {
   const [mounted, setMounted] = useState(false);
   const { wallet, openPicker } = useWallet();
   const navigate = useNavigate();
+  const [pendingNavigate, setPendingNavigate] = useState(false);
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(id);
   }, []);
+  // Auto-navigate to /create once the wallet connects after user clicked the CTA
+  useEffect(() => {
+    if (pendingNavigate && wallet) {
+      setPendingNavigate(false);
+      void navigate({ to: "/create" });
+    }
+  }, [pendingNavigate, wallet, navigate]);
   const cls = (extra = "") => `reveal ${mounted ? "is-visible" : ""} ${extra}`;
 
   function handlePrimary() {
     if (wallet) {
       void navigate({ to: "/create" });
     } else {
+      setPendingNavigate(true);
       openPicker();
     }
   }

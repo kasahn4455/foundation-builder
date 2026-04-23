@@ -21,7 +21,7 @@ import {
   AuthorityType,
 } from "@solana/spl-token";
 import type { SolanaProvider } from "@/components/wallet/WalletContext";
-import { rpcForCluster, type Cluster } from "./cluster";
+import { rpcForCluster, isMainnetRpcAccessError, type Cluster } from "./cluster";
 import { assertSolanaAddress } from "./address";
 
 export type SendPaymentArgs = {

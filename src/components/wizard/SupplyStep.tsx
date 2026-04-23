@@ -1,4 +1,5 @@
-import { Minus, Plus } from "lucide-react";
+import { useState } from "react";
+import { Minus, Plus, AlertCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 
 export function SupplyStep() {

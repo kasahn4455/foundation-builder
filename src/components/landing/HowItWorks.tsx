@@ -43,7 +43,7 @@ export function HowItWorks() {
         >
           <Link
             to="/create"
-            className="inline-flex items-center rounded-full bg-gradient-primary px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:scale-[1.02]"
+            className="btn-primary inline-flex items-center rounded-full bg-gradient-primary px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-glow"
           >
             Get Started Now
           </Link>

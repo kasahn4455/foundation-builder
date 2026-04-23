@@ -14,7 +14,72 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      orders: {
+        Row: {
+          addon_fee_sol: number
+          amount_sol: number
+          ata_address: string | null
+          base_fee_sol: number
+          cluster: string
+          created_at: string
+          decimals: number
+          id: string
+          initial_supply: number
+          mint_address: string | null
+          payment_signature: string | null
+          selected_options: Json
+          status: string
+          token_name: string
+          token_signature: string | null
+          token_symbol: string
+          total_fee_sol: number
+          updated_at: string
+          wallet_address: string
+        }
+        Insert: {
+          addon_fee_sol: number
+          amount_sol: number
+          ata_address?: string | null
+          base_fee_sol: number
+          cluster: string
+          created_at?: string
+          decimals: number
+          id?: string
+          initial_supply: number
+          mint_address?: string | null
+          payment_signature?: string | null
+          selected_options?: Json
+          status?: string
+          token_name: string
+          token_signature?: string | null
+          token_symbol: string
+          total_fee_sol: number
+          updated_at?: string
+          wallet_address: string
+        }
+        Update: {
+          addon_fee_sol?: number
+          amount_sol?: number
+          ata_address?: string | null
+          base_fee_sol?: number
+          cluster?: string
+          created_at?: string
+          decimals?: number
+          id?: string
+          initial_supply?: number
+          mint_address?: string | null
+          payment_signature?: string | null
+          selected_options?: Json
+          status?: string
+          token_name?: string
+          token_signature?: string | null
+          token_symbol?: string
+          total_fee_sol?: number
+          updated_at?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -3,42 +3,135 @@ import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
 import { CreationModal, type CreationStage } from "./CreationModal";
+import { createOrder, verifyPayment, saveTokenResult } from "@/server/orders.functions";
+import { sendPayment, mintToken } from "@/lib/solana/mint";
+import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
 
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
-  const { wallet, openPicker } = useWallet();
+  const { wallet, provider, openPicker } = useWallet();
   const [stage, setStage] = useState<CreationStage | null>(null);
   const [mintAddress, setMintAddress] = useState<string | undefined>();
+  const [paymentSig, setPaymentSig] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
-
-  function genMintAddress() {
-    const chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-    let out = "";
-    for (let i = 0; i < 44; i++) out += chars[Math.floor(Math.random() * chars.length)];
-    return out;
-  }
 
   async function runCreation() {
     setErrorMessage(undefined);
     setMintAddress(undefined);
+    setPaymentSig(undefined);
 
-    if (!wallet) {
+    if (!wallet || !provider) {
       openPicker();
       return;
     }
-    if (wallet.viewOnly) {
-      setStage("view-only-error");
+
+    // Validate inputs
+    const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
+    if (!state.tokenName.trim() || !state.tokenSymbol.trim()) {
+      setErrorMessage("Token name and symbol are required.");
+      setStage("error");
+      return;
+    }
+    if (!supplyDigits || BigInt(supplyDigits) <= 0n) {
+      setErrorMessage("Total supply must be greater than zero.");
+      setStage("error");
       return;
     }
 
-    const sequence: CreationStage[] = ["preparing", "confirming", "processing", "creating"];
-    for (const s of sequence) {
-      setStage(s);
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 900));
+    const selected = {
+      modifyCreator: state.modifyCreator,
+      customAddress: state.customAddress,
+      revokeFreeze: state.revokeFreeze,
+      revokeMint: state.revokeMint,
+      revokeUpdate: state.revokeUpdate,
+    };
+
+    try {
+      // 1. Preparing — create order on the backend
+      setStage("preparing");
+      const order = await createOrder({
+        data: {
+          wallet_address: wallet.address,
+          token_name: state.tokenName.trim(),
+          token_symbol: state.tokenSymbol.trim(),
+          decimals: state.decimals,
+          initial_supply: supplyDigits,
+          cluster: state.cluster,
+          base_fee_sol: 0.3,
+          addon_fee_sol: computeAddonFee(selected),
+          selected_options: selected,
+          total_fee_sol: computeTotalFee(selected),
+        },
+      });
+
+      // 2. Confirming — wallet signs payment
+      setStage("confirming");
+      const sig = await sendPayment({
+        provider,
+        fromAddress: wallet.address,
+        toAddress: order.recipient_wallet,
+        amountSol: order.amount_sol,
+        cluster: state.cluster,
+      });
+      setPaymentSig(sig);
+
+      // 3. Processing — backend verifies on-chain
+      setStage("processing");
+      await verifyPayment({
+        data: {
+          order_id: order.order_id,
+          wallet_address: wallet.address,
+          payment_signature: sig,
+          cluster: state.cluster,
+        },
+      });
+
+      // 4. Creating Token — only after payment verified
+      setStage("creating");
+      let mintRes;
+      try {
+        mintRes = await mintToken({
+          provider,
+          payerAddress: wallet.address,
+          cluster: state.cluster,
+          decimals: state.decimals,
+          initialSupply: supplyDigits,
+          revokeFreeze: state.revokeFreeze,
+          revokeMint: state.revokeMint,
+        });
+      } catch (mintErr) {
+        // Payment succeeded but mint failed — do NOT silently retry-charge.
+        const msg =
+          mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        setErrorMessage(
+          `Payment was received but the token mint failed: ${msg}. Your payment signature is preserved — contact support before retrying to avoid double-charge.`,
+        );
+        setStage("error");
+        return;
+      }
+
+      await saveTokenResult({
+        data: {
+          order_id: order.order_id,
+          payment_signature: sig,
+          token_signature: mintRes.signature,
+          mint_address: mintRes.mintAddress,
+          ata_address: mintRes.ataAddress,
+          cluster: state.cluster,
+        },
+      });
+
+      setMintAddress(mintRes.mintAddress);
+      setStage("success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Something went wrong";
+      // Map common wallet rejections to a friendlier message
+      const friendly = /User rejected|reject/i.test(msg)
+        ? "You cancelled the transaction in your wallet."
+        : msg;
+      setErrorMessage(friendly);
+      setStage("error");
     }
-    setMintAddress(genMintAddress());
-    setStage("success");
   }
 
   function handleCreate() {
@@ -123,6 +216,42 @@ export function DetailsStep() {
         </div>
       </div>
 
+      {/* Network selector */}
+      <div className="rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h4 className="font-medium">Network</h4>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Choose the Solana cluster to mint on. Devnet is free test SOL.
+            </p>
+          </div>
+          <div className="inline-flex rounded-full border border-white/10 bg-background/40 p-1">
+            <button
+              type="button"
+              onClick={() => set("cluster", "devnet")}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
+                state.cluster === "devnet"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              Devnet
+            </button>
+            <button
+              type="button"
+              onClick={() => set("cluster", "mainnet")}
+              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
+                state.cluster === "mainnet"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "text-muted-foreground"
+              }`}
+            >
+              Mainnet
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 sm:justify-between">
         <button
           onClick={() => setStep(2)}
@@ -132,7 +261,7 @@ export function DetailsStep() {
         </button>
         <button
           onClick={handleCreate}
-          disabled={stage !== null && stage !== "success" && stage !== "error" && stage !== "view-only-error"}
+          disabled={stage !== null && stage !== "success" && stage !== "error"}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
           {wallet ? `Create Token (${totalPrice.toFixed(2)} SOL)` : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
@@ -145,10 +274,12 @@ export function DetailsStep() {
         open={stage !== null}
         stage={stage ?? "preparing"}
         mintAddress={mintAddress}
+        paymentSignature={paymentSig}
         errorMessage={errorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
         totalSol={totalPrice}
+        cluster={state.cluster}
         onClose={() => setStage(null)}
         onRetry={handleCreate}
       />

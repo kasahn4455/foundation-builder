@@ -22,6 +22,17 @@ import type { SolanaProvider } from "@/components/wallet/WalletContext";
 import { rpcForCluster, isMainnetRpcAccessError, type Cluster } from "./cluster";
 import { assertSolanaAddress } from "./address";
 
+export async function getWalletBalanceSol(
+  address: string,
+  cluster: Cluster,
+): Promise<number> {
+  const rpcUrl = rpcForCluster(cluster);
+  const connection = new Connection(rpcUrl, "confirmed");
+  const pk = new PublicKey(assertSolanaAddress(address, "Wallet address"));
+  const lamports = await connection.getBalance(pk, "confirmed");
+  return lamports / LAMPORTS_PER_SOL;
+}
+
 export type SendPaymentArgs = {
   provider: SolanaProvider;
   fromAddress: string;

@@ -168,24 +168,29 @@
 @layer components {
   .input-dark {
     width: 100%;
-    border-radius: 0.75rem;
-    background-color: oklch(0.2 0.03 270);
-    border: 1px solid var(--color-border);
-    padding: 0.75rem 1rem;
+    border-radius: 0.875rem;
+    background-color: oklch(0.16 0.02 270 / 70%);
+    border: 1px solid oklch(1 0 0 / 7%);
+    padding: 0.85rem 1rem;
     color: var(--color-foreground);
     font-size: 0.95rem;
     outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   }
   .input-dark::placeholder {
-    color: oklch(0.55 0.02 260);
+    color: oklch(0.5 0.02 260);
+  }
+  .input-dark:hover {
+    border-color: oklch(1 0 0 / 12%);
   }
   .input-dark:focus {
-    border-color: var(--color-ring);
-    box-shadow: 0 0 0 3px oklch(0.62 0.24 295 / 25%);
+    border-color: oklch(0.66 0.22 290 / 60%);
+    background-color: oklch(0.17 0.022 270 / 90%);
+    box-shadow: 0 0 0 4px oklch(0.66 0.22 290 / 18%);
   }
   .helper {
     font-size: 0.8rem;
     color: var(--color-muted-foreground);
+    line-height: 1.5;
   }
 }

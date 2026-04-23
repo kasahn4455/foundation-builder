@@ -5,6 +5,36 @@ import { TokenInfoStep } from "@/components/wizard/TokenInfoStep";
 import { SupplyStep } from "@/components/wizard/SupplyStep";
 import { DetailsStep } from "@/components/wizard/DetailsStep";
 import { Wordmark } from "@/components/brand/Wordmark";
+import { useWallet, truncateAddress } from "@/components/wallet/WalletContext";
+import { LogOut, Eye } from "lucide-react";
+
+function WizardHeaderConnect() {
+  const { wallet, openPicker, disconnect } = useWallet();
+  if (!wallet) {
+    return (
+      <button
+        onClick={openPicker}
+        className="btn-primary rounded-full bg-gradient-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-glow"
+      >
+        Connect Wallet
+      </button>
+    );
+  }
+  return (
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] pl-3 pr-1 py-1 text-xs">
+      {wallet.viewOnly && <Eye className="h-3.5 w-3.5 text-accent" aria-label="View-only" />}
+      <span className="font-mono text-foreground/90">{truncateAddress(wallet.address)}</span>
+      <button
+        onClick={disconnect}
+        className="btn-secondary ml-1 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10"
+        aria-label="Disconnect wallet"
+        title="Disconnect"
+      >
+        <LogOut className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/create")({
   head: () => ({

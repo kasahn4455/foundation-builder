@@ -1,3 +1,4 @@
+import "@/lib/polyfills";
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { WalletProvider } from "@/components/wallet/WalletContext";
 import { WalletPickerModal } from "@/components/wallet/WalletPickerModal";

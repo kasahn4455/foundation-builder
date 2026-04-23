@@ -1,3 +1,5 @@
+import "@/lib/polyfills";
+import { Buffer } from "buffer";
 import {
   Connection,
   LAMPORTS_PER_SOL,

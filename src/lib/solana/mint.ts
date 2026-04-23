@@ -253,3 +253,79 @@ export async function mintToken({
     signature,
   };
 }
+
+/**
+ * Confirms a transaction signature while actively rebroadcasting the raw bytes
+ * (when available) until either:
+ *   - the signature is confirmed at "confirmed" commitment, OR
+ *   - the current block height passes lastValidBlockHeight (expired).
+ *
+ * This avoids the common mainnet failure where a tx is signed but never lands
+ * because the leader dropped it and nothing rebroadcasts it before the
+ * blockhash window closes.
+ */
+async function confirmWithRebroadcast(
+  connection: Connection,
+  signature: string,
+  blockhash: string,
+  lastValidBlockHeight: number,
+  rawTx: Uint8Array | null,
+): Promise<void> {
+  const startedAt = Date.now();
+  const HARD_TIMEOUT_MS = 90_000;
+
+  while (true) {
+    // 1. Check if the tx has landed.
+    const { value } = await connection.getSignatureStatuses([signature]);
+    const status = value[0];
+    if (status) {
+      if (status.err) {
+        throw new Error(
+          `Transaction failed on-chain: ${JSON.stringify(status.err)}`,
+        );
+      }
+      if (
+        status.confirmationStatus === "confirmed" ||
+        status.confirmationStatus === "finalized"
+      ) {
+        return;
+      }
+    }
+
+    // 2. Check expiry: if current block height passed lastValidBlockHeight, give up.
+    let blockHeight: number;
+    try {
+      blockHeight = await connection.getBlockHeight("confirmed");
+    } catch {
+      blockHeight = 0;
+    }
+    if (blockHeight > lastValidBlockHeight) {
+      throw new Error(
+        `Signature ${signature} has expired: block height exceeded.`,
+      );
+    }
+
+    if (Date.now() - startedAt > HARD_TIMEOUT_MS) {
+      throw new Error(
+        `Signature ${signature} confirmation timed out after 90s.`,
+      );
+    }
+
+    // 3. Rebroadcast the raw tx (best-effort) to keep it alive in the mempool.
+    if (rawTx) {
+      try {
+        await connection.sendRawTransaction(rawTx, {
+          skipPreflight: true,
+          maxRetries: 0,
+        });
+      } catch {
+        // Ignore rebroadcast errors — the polling loop above is the source of truth.
+      }
+    }
+
+    // Avoid hammering the RPC.
+    await new Promise((r) => setTimeout(r, 1500));
+    // Reference blockhash to keep param meaningful for future tweaks.
+    void blockhash;
+  }
+}

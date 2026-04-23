@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useReveal } from "@/hooks/use-reveal";
 
 const faqs = [
   {
@@ -22,20 +23,25 @@ const faqs = [
 
 export function Faq() {
   const [open, setOpen] = useState<number | null>(0);
+  const header = useReveal<HTMLDivElement>();
+  const list = useReveal<HTMLDivElement>();
 
   return (
     <section id="faq" className="px-4 py-24 md:py-28">
       <div className="mx-auto max-w-3xl">
-        <div className="text-center">
+        <div ref={header.ref} className={`reveal ${header.visible ? "is-visible" : ""} text-center`}>
           <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80 mb-3">FAQ</div>
           <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">Frequently asked questions</h2>
         </div>
 
-        <div className="mt-12 space-y-3">
+        <div
+          ref={list.ref}
+          className={`reveal-stagger ${list.visible ? "is-visible" : ""} mt-12 space-y-3`}
+        >
           {faqs.map((f, i) => {
             const isOpen = open === i;
             return (
-              <div key={f.q} className="card-premium rounded-2xl overflow-hidden">
+              <div key={f.q} className="reveal-item card-premium rounded-2xl overflow-hidden">
                 <button
                   onClick={() => setOpen(isOpen ? null : i)}
                   className="w-full flex items-center justify-between gap-4 px-6 py-5 text-left"

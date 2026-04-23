@@ -1,4 +1,5 @@
 import { Coins, ShieldCheck, Zap, Layers } from "lucide-react";
+import { useReveal } from "@/hooks/use-reveal";
 
 const features = [
   { icon: Coins, title: "SPL Token Mint", desc: "Standard Solana SPL tokens with full metadata support." },
@@ -8,10 +9,16 @@ const features = [
 ];
 
 export function Features() {
+  const header = useReveal<HTMLDivElement>();
+  const grid = useReveal<HTMLDivElement>();
+
   return (
     <section id="features" className="px-4 py-24 md:py-28">
       <div className="mx-auto max-w-6xl">
-        <div className="text-center max-w-2xl mx-auto">
+        <div
+          ref={header.ref}
+          className={`reveal ${header.visible ? "is-visible" : ""} text-center max-w-2xl mx-auto`}
+        >
           <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80 mb-3">Features</div>
           <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">Everything you need to launch</h2>
           <p className="mt-4 text-muted-foreground leading-relaxed">
@@ -19,9 +26,12 @@ export function Features() {
           </p>
         </div>
 
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div
+          ref={grid.ref}
+          className={`reveal-stagger ${grid.visible ? "is-visible" : ""} mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4`}
+        >
           {features.map((f) => (
-            <div key={f.title} className="card-premium rounded-2xl p-6 group">
+            <div key={f.title} className="reveal-item card-premium rounded-2xl p-6 group">
               <div
                 className="h-11 w-11 rounded-xl grid place-items-center mb-5 border border-white/10 shadow-glow-sm"
                 style={{ background: "var(--gradient-soft)" }}

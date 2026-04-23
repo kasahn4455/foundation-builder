@@ -1,9 +1,14 @@
 import { Link } from "@tanstack/react-router";
+import { useReveal } from "@/hooks/use-reveal";
 
 export function CtaSection() {
+  const { ref, visible } = useReveal<HTMLDivElement>();
   return (
     <section className="px-4 py-24 md:py-28">
-      <div className="mx-auto max-w-4xl card-premium rounded-3xl p-12 md:p-16 text-center relative overflow-hidden">
+      <div
+        ref={ref}
+        className={`reveal ${visible ? "is-visible" : ""} mx-auto max-w-4xl card-premium rounded-3xl p-12 md:p-16 text-center relative overflow-hidden`}
+      >
         <div
           className="absolute inset-0 opacity-60 pointer-events-none"
           style={{ background: "var(--gradient-soft)" }}

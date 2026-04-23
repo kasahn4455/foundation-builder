@@ -9,23 +9,27 @@ const features = [
 
 export function Features() {
   return (
-    <section id="features" className="px-4 py-20">
+    <section id="features" className="px-4 py-24 md:py-28">
       <div className="mx-auto max-w-6xl">
         <div className="text-center max-w-2xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold">Everything you need to launch</h2>
-          <p className="mt-3 text-muted-foreground">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80 mb-3">Features</div>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">Everything you need to launch</h2>
+          <p className="mt-4 text-muted-foreground leading-relaxed">
             A focused toolkit for creators who want to ship a token without the friction.
           </p>
         </div>
 
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((f) => (
-            <div key={f.title} className="card-premium rounded-2xl p-6">
-              <div className="h-10 w-10 rounded-xl bg-gradient-primary/10 grid place-items-center mb-4 shadow-glow">
+            <div key={f.title} className="card-premium rounded-2xl p-6 group">
+              <div
+                className="h-11 w-11 rounded-xl grid place-items-center mb-5 border border-white/10 shadow-glow-sm"
+                style={{ background: "var(--gradient-soft)" }}
+              >
                 <f.icon className="h-5 w-5 text-accent" />
               </div>
-              <h3 className="font-semibold">{f.title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{f.desc}</p>
+              <h3 className="font-semibold tracking-tight">{f.title}</h3>
+              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
             </div>
           ))}
         </div>

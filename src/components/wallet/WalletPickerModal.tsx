@@ -1,18 +1,14 @@
 import { useEffect } from "react";
-import { X, Wallet, Eye } from "lucide-react";
+import { X, Wallet, Download } from "lucide-react";
 import { useWallet, type WalletKind } from "./WalletContext";
 
 const wallets: { kind: WalletKind; label: string; subtitle: string; emoji: string }[] = [
   { kind: "phantom", label: "Phantom", subtitle: "Most popular Solana wallet", emoji: "👻" },
-  { kind: "solflare", label: "Solflare", subtitle: "Web & mobile wallet", emoji: "🔥" },
   { kind: "backpack", label: "Backpack", subtitle: "xNFT-native wallet", emoji: "🎒" },
 ];
 
-/**
- * Frontend-only wallet picker. Simulates a connect handshake.
- */
 export function WalletPickerModal() {
-  const { isPickerOpen, closePicker, connect, isConnecting } = useWallet();
+  const { isPickerOpen, closePicker, connect, isConnecting, detected } = useWallet();
 
   useEffect(() => {
     if (!isPickerOpen) return;
@@ -57,41 +53,33 @@ export function WalletPickerModal() {
         </div>
 
         <div className="mt-5 space-y-2">
-          {wallets.map((w) => (
-            <button
-              key={w.kind}
-              type="button"
-              disabled={isConnecting}
-              onClick={() => void connect(w.kind)}
-              className="btn-secondary w-full flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 text-left disabled:opacity-60"
-            >
-              <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-lg">
-                {w.emoji}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">{w.label}</span>
-                <span className="block text-xs text-muted-foreground truncate">{w.subtitle}</span>
-              </span>
-              <Wallet className="h-4 w-4 text-muted-foreground" />
-            </button>
-          ))}
-
-          <button
-            type="button"
-            disabled={isConnecting}
-            onClick={() => void connect("view-only")}
-            className="btn-secondary w-full flex items-center gap-3 rounded-2xl border border-dashed border-white/10 bg-transparent px-4 py-3.5 text-left disabled:opacity-60"
-          >
-            <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.03]">
-              <Eye className="h-4 w-4 text-muted-foreground" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold">View-only address</span>
-              <span className="block text-xs text-muted-foreground">
-                Browse the app — cannot mint
-              </span>
-            </span>
-          </button>
+          {wallets.map((w) => {
+            const installed = detected[w.kind];
+            return (
+              <button
+                key={w.kind}
+                type="button"
+                disabled={isConnecting}
+                onClick={() => void connect(w.kind).catch(() => {})}
+                className="btn-secondary w-full flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 text-left disabled:opacity-60"
+              >
+                <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-lg">
+                  {w.emoji}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{w.label}</span>
+                  <span className="block text-xs text-muted-foreground truncate">{w.subtitle}</span>
+                </span>
+                {installed ? (
+                  <Wallet className="h-4 w-4 text-success" />
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Download className="h-3.5 w-3.5" /> Install
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <p className="mt-5 text-[11px] text-muted-foreground text-center">

@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
+export type Cluster = "devnet" | "mainnet";
+
 export type WizardState = {
   // Step 1
   tokenName: string;
@@ -22,6 +24,8 @@ export type WizardState = {
   revokeFreeze: boolean;
   revokeMint: boolean;
   revokeUpdate: boolean;
+  // Network
+  cluster: Cluster;
 };
 
 const initial: WizardState = {
@@ -43,6 +47,7 @@ const initial: WizardState = {
   revokeFreeze: false,
   revokeMint: true,
   revokeUpdate: true,
+  cluster: "devnet",
 };
 
 type Ctx = {

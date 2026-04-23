@@ -245,7 +245,7 @@ export function DetailsStep() {
           unselected (unchecked), the authority will be transferred to your wallet.
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-3 items-stretch">
           <AuthorityCard
             title="Revoke Freeze"
             desc="Freeze Authority allows freezing token accounts. Revoke it to prevent tokens from being frozen."
@@ -436,7 +436,7 @@ function AuthorityCard({
     <button
       type="button"
       onClick={onClick}
-      className={`card-premium rounded-2xl p-5 text-left transition flex flex-col h-full hover:ring-2 hover:ring-primary/40 ${checked ? "ring-2 ring-primary/60 hover:ring-primary/60" : ""}`}
+      className={`card-premium rounded-2xl p-5 text-left transition flex flex-col h-full w-full hover:ring-2 hover:ring-primary/40 ${checked ? "ring-2 ring-primary/60 hover:ring-primary/60" : ""}`}
     >
       <div className="flex items-center justify-between">
         <h4 className="font-medium">{title}</h4>

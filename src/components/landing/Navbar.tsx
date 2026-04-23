@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Menu, X, LogOut, Eye } from "lucide-react";
+import { Menu, X, LogOut } from "lucide-react";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { useWallet, truncateAddress } from "@/components/wallet/WalletContext";
 
@@ -87,7 +87,6 @@ export function Navbar() {
         <div className="hidden md:flex items-center gap-2">
           {wallet ? (
             <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] pl-3 pr-1 py-1 text-xs">
-              {wallet.viewOnly && <Eye className="h-3.5 w-3.5 text-accent" aria-label="View-only" />}
               <span className="font-mono text-foreground/90">{truncateAddress(wallet.address)}</span>
               <button
                 onClick={disconnect}
@@ -128,7 +127,6 @@ export function Navbar() {
             {wallet ? (
               <div className="mt-2 flex items-center justify-between gap-2 rounded-full border border-white/10 bg-white/[0.04] pl-3 pr-1 py-1.5 text-xs">
                 <span className="inline-flex items-center gap-1.5 font-mono">
-                  {wallet.viewOnly && <Eye className="h-3.5 w-3.5 text-accent" />}
                   {truncateAddress(wallet.address)}
                 </span>
                 <button

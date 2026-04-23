@@ -1,11 +1,20 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 
 function scrollTo(hash: string) {
   document.querySelector(hash)?.scrollIntoView({ behavior: "smooth" });
 }
 
 export function Hero() {
+  // Hero animates in immediately on mount (above the fold)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const cls = (extra = "") => `reveal ${mounted ? "is-visible" : ""} ${extra}`;
+
   return (
     <section className="relative px-4 pt-24 pb-28 md:pt-32 md:pb-36 overflow-hidden">
       <div
@@ -14,22 +23,36 @@ export function Hero() {
         style={{ background: "var(--gradient-soft)" }}
       />
       <div className="relative mx-auto max-w-4xl text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground backdrop-blur-md shadow-glow-sm">
+        <div
+          className={cls(
+            "inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground backdrop-blur-md shadow-glow-sm",
+          )}
+          style={{ transitionDelay: "0.05s" }}
+        >
           <Sparkles className="h-3.5 w-3.5 text-accent" />
           Premium Solana Token Creator
         </div>
 
-        <h1 className="mt-7 text-[2.6rem] sm:text-5xl md:text-7xl font-semibold tracking-tight leading-[1.02]">
+        <h1
+          className={cls("mt-7 text-[2.6rem] sm:text-5xl md:text-7xl font-semibold tracking-tight leading-[1.02]")}
+          style={{ transitionDelay: "0.15s" }}
+        >
           Launch your Solana token <br className="hidden md:block" />
           in <span className="text-gradient">minutes, not days</span>
         </h1>
 
-        <p className="mt-6 text-base md:text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+        <p
+          className={cls("mt-6 text-base md:text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed")}
+          style={{ transitionDelay: "0.28s" }}
+        >
           Create, configure, and mint SPL tokens with a clean 3-step wizard. Pay once,
           mint instantly, then hand off to Raydium for liquidity.
         </p>
 
-        <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
+        <div
+          className={cls("mt-10 flex flex-col sm:flex-row gap-3 justify-center")}
+          style={{ transitionDelay: "0.4s" }}
+        >
           <Link
             to="/create"
             className="group inline-flex items-center justify-center gap-2 rounded-full bg-gradient-primary px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:scale-[1.02]"

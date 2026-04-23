@@ -20,8 +20,9 @@ export type CreationStage =
   | "error"
   | "view-only-error";
 
-const stageOrder: CreationStage[] = ["preparing", "confirming", "processing", "creating"];
-const stageLabels: Record<Exclude<CreationStage, "success" | "error" | "view-only-error">, string> = {
+type ProgressStage = "preparing" | "confirming" | "processing" | "creating";
+const stageOrder: ProgressStage[] = ["preparing", "confirming", "processing", "creating"];
+const stageLabels: Record<ProgressStage, string> = {
   preparing: "Preparing Transaction",
   confirming: "Confirming",
   processing: "Processing",

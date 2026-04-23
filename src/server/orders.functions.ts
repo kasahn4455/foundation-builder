@@ -48,8 +48,12 @@ function getPlatformWallet(cluster: "devnet" | "mainnet"): string {
       ? process.env.PLATFORM_WALLET_MAINNET
       : process.env.PLATFORM_WALLET_DEVNET;
   if (!raw) throw new Error(`Platform wallet for ${cluster} is not configured`);
-  // Strip accidental quotes/whitespace from secret entry.
-  const w = raw.trim().replace(/^["']|["']$/g, "");
+  // Strip accidental quotes/whitespace, and a pasted "KEY = value" prefix.
+  let w = raw.trim().replace(/^["']|["']$/g, "");
+  const eq = w.indexOf("=");
+  if (eq !== -1 && /^[A-Z_][A-Z0-9_]*\s*$/.test(w.slice(0, eq))) {
+    w = w.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+  }
   // Validate before returning so a bad env var fails server-side, not in the wallet.
   try {
     new PublicKey(w);

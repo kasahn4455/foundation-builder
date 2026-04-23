@@ -1,5 +1,4 @@
 import "@/lib/polyfills";
-import { Buffer } from "buffer";
 import {
   Connection,
   LAMPORTS_PER_SOL,
@@ -99,7 +98,7 @@ export type MintTokenArgs = {
   payerAddress: string;
   cluster: Cluster;
   decimals: number;
-  initialSupply: string; // base-unit-aware string of whole tokens
+  initialSupply: string;
   revokeFreeze: boolean;
   revokeMint: boolean;
 };
@@ -132,25 +131,31 @@ export async function mintToken({
   const connection = new Connection(rpcUrl, "confirmed");
   const payer = new PublicKey(assertSolanaAddress(payerAddress, "Payer wallet address"));
 
-  // Always rebuild a fresh mint keypair + transaction. No state is reused across retries.
+  // Every mint attempt gets a brand-new keypair and addresses.
   const mintKeypair = Keypair.generate();
   const mintPk = mintKeypair.publicKey;
   const ata = getAssociatedTokenAddressSync(mintPk, payer);
 
-  // Do all slow network calls (rent lookup) BEFORE fetching blockhash, so the
-  // blockhash is as fresh as possible when the wallet prompt appears.
+  // Do slower preparation work first. The transaction itself is built only after
+  // fetching the fresh blockhash right before signing.
   const lamportsForMint = await getMinimumBalanceForRentExemptMint(connection);
-
-  // Compute base units = supply * 10^decimals using BigInt
   const supplyBI = BigInt(initialSupply);
   const factor = BigInt(10) ** BigInt(decimals);
   const baseUnits = supplyBI * factor;
 
-  async function freshBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
+  let failurePoint = "prepare";
+
+  async function getFreshBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
+    failurePoint = "getLatestBlockhash";
+    console.info("[mint] mintToken blockhash fetch start", { cluster });
     try {
-      // "finalized" gives a blockhash all validators agree on — maximizes the
-      // window before "block height exceeded" while the user signs in the wallet.
-      return await connection.getLatestBlockhash("finalized");
+      const bh = await connection.getLatestBlockhash("confirmed");
+      console.info("[mint] mintToken blockhash fetched", {
+        cluster,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      });
+      return bh;
     } catch (err) {
       console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
       if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
@@ -165,8 +170,16 @@ export async function mintToken({
     }
   }
 
-  function buildTx(blockhash: string, lastValidBlockHeight: number): Transaction {
-    const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight });
+  try {
+    const { blockhash, lastValidBlockHeight } = await getFreshBlockhash();
+
+    failurePoint = "buildTransaction";
+    const tx = new Transaction({
+      feePayer: payer,
+      blockhash,
+      lastValidBlockHeight,
+    });
+
     tx.add(
       SystemProgram.createAccount({
         fromPubkey: payer,
@@ -185,147 +198,85 @@ export async function mintToken({
       createAssociatedTokenAccountInstruction(payer, ata, payer, mintPk),
       createMintToInstruction(mintPk, ata, payer, baseUnits, [], TOKEN_PROGRAM_ID),
     );
+
     if (revokeFreeze) {
       tx.add(
         createSetAuthorityInstruction(
-          mintPk, payer, AuthorityType.FreezeAccount, null, [], TOKEN_PROGRAM_ID,
+          mintPk,
+          payer,
+          AuthorityType.FreezeAccount,
+          null,
+          [],
+          TOKEN_PROGRAM_ID,
         ),
       );
     }
+
     if (revokeMint) {
       tx.add(
         createSetAuthorityInstruction(
-          mintPk, payer, AuthorityType.MintTokens, null, [], TOKEN_PROGRAM_ID,
+          mintPk,
+          payer,
+          AuthorityType.MintTokens,
+          null,
+          [],
+          TOKEN_PROGRAM_ID,
         ),
       );
     }
-    // Mint keypair must sign the createAccount; wallet signs as fee payer.
+
     tx.partialSign(mintKeypair);
-    return tx;
-  }
 
-  // Fetch blockhash as late as possible — immediately before building & signing.
-  let { blockhash, lastValidBlockHeight } = await freshBlockhash();
-  let tx = buildTx(blockhash, lastValidBlockHeight);
+    let signature: string;
+    if (provider.signTransaction) {
+      failurePoint = "signTransaction";
+      console.info("[mint] mintToken signing start", { cluster, blockhash });
+      const signed = await provider.signTransaction(tx);
 
-  // Strategy: ALWAYS sign locally and broadcast via our (Helius) RPC. Wallet-managed
-  // signAndSendTransaction often routes through a slow public RPC, causing the tx to
-  // land after the blockhash window closes. Local sign + our RPC + active rebroadcast
-  // is the most reliable path on mainnet.
-  let signature: string;
-  try {
-    let signed;
-    try {
-      signed = await provider.signTransaction(tx);
-    } catch (signErr) {
-      // Some wallets only expose signAndSendTransaction. Fall back to that path.
-      if (provider.signAndSendTransaction) {
-        const res = await provider.signAndSendTransaction(tx);
-        signature = res.signature;
-        await confirmWithRebroadcast(connection, signature, blockhash, lastValidBlockHeight, null);
-        return { mintAddress: mintPk.toBase58(), ataAddress: ata.toBase58(), signature };
-      }
-      throw signErr;
+      failurePoint = "sendRawTransaction";
+      console.info("[mint] mintToken send start", { cluster, blockhash });
+      signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        maxRetries: 5,
+      });
+    } else if (provider.signAndSendTransaction) {
+      failurePoint = "signAndSendTransaction";
+      console.info("[mint] mintToken signAndSend start", { cluster, blockhash });
+      const res = await provider.signAndSendTransaction(tx);
+      signature = res.signature;
+    } else {
+      throw new Error("Connected wallet does not support Solana transaction signing.");
     }
 
-    const rawTx = signed.serialize();
-    // Send via our RPC. skipPreflight=true avoids a wasted simulate roundtrip and
-    // gets the tx into the leader's mempool faster.
-    signature = await connection.sendRawTransaction(rawTx, {
-      skipPreflight: true,
-      maxRetries: 5,
+    failurePoint = "confirmTransaction";
+    console.info("[mint] mintToken confirm start", {
+      cluster,
+      signature,
+      blockhash,
+      lastValidBlockHeight,
     });
+    await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      "confirmed",
+    );
 
-    await confirmWithRebroadcast(connection, signature, blockhash, lastValidBlockHeight, rawTx);
+    return {
+      mintAddress: mintPk.toBase58(),
+      ataAddress: ata.toBase58(),
+      signature,
+    };
   } catch (err) {
+    console.error("[mint] mintToken failed", {
+      cluster,
+      failurePoint,
+      err,
+    });
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Mint transaction expired before it landed on-chain. The network was congested or signing took too long. Please click Retry to build a fresh transaction.",
+        "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
       );
     }
     throw err;
-  }
-
-  return {
-    mintAddress: mintPk.toBase58(),
-    ataAddress: ata.toBase58(),
-    signature,
-  };
-}
-
-/**
- * Confirms a transaction signature while actively rebroadcasting the raw bytes
- * (when available) until either:
- *   - the signature is confirmed at "confirmed" commitment, OR
- *   - the current block height passes lastValidBlockHeight (expired).
- *
- * This avoids the common mainnet failure where a tx is signed but never lands
- * because the leader dropped it and nothing rebroadcasts it before the
- * blockhash window closes.
- */
-async function confirmWithRebroadcast(
-  connection: Connection,
-  signature: string,
-  blockhash: string,
-  lastValidBlockHeight: number,
-  rawTx: Uint8Array | null,
-): Promise<void> {
-  const startedAt = Date.now();
-  const HARD_TIMEOUT_MS = 90_000;
-
-  while (true) {
-    // 1. Check if the tx has landed.
-    const { value } = await connection.getSignatureStatuses([signature]);
-    const status = value[0];
-    if (status) {
-      if (status.err) {
-        throw new Error(
-          `Transaction failed on-chain: ${JSON.stringify(status.err)}`,
-        );
-      }
-      if (
-        status.confirmationStatus === "confirmed" ||
-        status.confirmationStatus === "finalized"
-      ) {
-        return;
-      }
-    }
-
-    // 2. Check expiry: if current block height passed lastValidBlockHeight, give up.
-    let blockHeight: number;
-    try {
-      blockHeight = await connection.getBlockHeight("confirmed");
-    } catch {
-      blockHeight = 0;
-    }
-    if (blockHeight > lastValidBlockHeight) {
-      throw new Error(
-        `Signature ${signature} has expired: block height exceeded.`,
-      );
-    }
-
-    if (Date.now() - startedAt > HARD_TIMEOUT_MS) {
-      throw new Error(
-        `Signature ${signature} confirmation timed out after 90s.`,
-      );
-    }
-
-    // 3. Rebroadcast the raw tx (best-effort) to keep it alive in the mempool.
-    if (rawTx) {
-      try {
-        await connection.sendRawTransaction(rawTx, {
-          skipPreflight: true,
-          maxRetries: 0,
-        });
-      } catch {
-        // Ignore rebroadcast errors — the polling loop above is the source of truth.
-      }
-    }
-
-    // Avoid hammering the RPC.
-    await new Promise((r) => setTimeout(r, 1500));
-    // Reference blockhash to keep param meaningful for future tweaks.
-    void blockhash;
   }
 }

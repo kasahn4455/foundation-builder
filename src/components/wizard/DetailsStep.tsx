@@ -14,16 +14,66 @@ export function DetailsStep() {
   const [mintAddress, setMintAddress] = useState<string | undefined>();
   const [paymentSig, setPaymentSig] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [pendingMint, setPendingMint] = useState<{
+    orderId: string;
+    paymentSignature: string;
+    walletAddress: string;
+    cluster: "devnet" | "mainnet";
+    decimals: number;
+    initialSupply: string;
+    revokeFreeze: boolean;
+    revokeMint: boolean;
+  } | null>(null);
+
+  async function completeMint(args: NonNullable<typeof pendingMint>) {
+    setStage("creating");
+    const mintRes = await mintToken({
+      provider: provider!,
+      payerAddress: args.walletAddress,
+      cluster: args.cluster,
+      decimals: args.decimals,
+      initialSupply: args.initialSupply,
+      revokeFreeze: args.revokeFreeze,
+      revokeMint: args.revokeMint,
+    });
+
+    await saveTokenResult({
+      data: {
+        order_id: args.orderId,
+        payment_signature: args.paymentSignature,
+        token_signature: mintRes.signature,
+        mint_address: mintRes.mintAddress,
+        ata_address: mintRes.ataAddress,
+        cluster: args.cluster,
+      },
+    });
+
+    setMintAddress(mintRes.mintAddress);
+    setPendingMint(null);
+    setStage("success");
+  }
 
   async function runCreation() {
     setErrorMessage(undefined);
     setMintAddress(undefined);
-    setPaymentSig(undefined);
 
     if (!wallet || !provider) {
       openPicker();
       return;
     }
+
+    if (pendingMint) {
+      try {
+        await completeMint(pendingMint);
+      } catch (mintErr) {
+        const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        setErrorMessage(msg);
+        setStage("error");
+      }
+      return;
+    }
+
+    setPaymentSig(undefined);
 
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
@@ -86,43 +136,27 @@ export function DetailsStep() {
         },
       });
 
+      const mintAttempt = {
+        orderId: order.order_id,
+        paymentSignature: sig,
+        walletAddress: wallet.address,
+        cluster: state.cluster,
+        decimals: state.decimals,
+        initialSupply: supplyDigits,
+        revokeFreeze: state.revokeFreeze,
+        revokeMint: state.revokeMint,
+      } as const;
+      setPendingMint(mintAttempt);
+
       // 4. Creating Token — only after payment verified
-      setStage("creating");
-      let mintRes;
       try {
-        mintRes = await mintToken({
-          provider,
-          payerAddress: wallet.address,
-          cluster: state.cluster,
-          decimals: state.decimals,
-          initialSupply: supplyDigits,
-          revokeFreeze: state.revokeFreeze,
-          revokeMint: state.revokeMint,
-        });
+        await completeMint(mintAttempt);
       } catch (mintErr) {
-        // Payment succeeded but mint failed — do NOT silently retry-charge.
-        const msg =
-          mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
-        setErrorMessage(
-          `Payment was received but the token mint failed: ${msg}. Your payment signature is preserved — contact support before retrying to avoid double-charge.`,
-        );
+        // Payment succeeded but mint failed — preserve retry context and do NOT re-charge.
+        const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        setErrorMessage(msg);
         setStage("error");
-        return;
       }
-
-      await saveTokenResult({
-        data: {
-          order_id: order.order_id,
-          payment_signature: sig,
-          token_signature: mintRes.signature,
-          mint_address: mintRes.mintAddress,
-          ata_address: mintRes.ataAddress,
-          cluster: state.cluster,
-        },
-      });
-
-      setMintAddress(mintRes.mintAddress);
-      setStage("success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Something went wrong";
       // Map common wallet rejections to a friendlier message

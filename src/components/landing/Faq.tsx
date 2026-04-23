@@ -24,10 +24,6 @@ const faqs = [
     a: "We support Phantom, Solflare, Backpack, and any Solana wallet that follows the standard wallet adapter protocol.",
   },
   {
-    q: "Can I test without paying real SOL?",
-    a: "Yes. Switch the network to Devnet inside the wizard — platform fees are disabled there. You only need a small amount of devnet SOL (free from a faucet) to cover network costs.",
-  },
-  {
     q: "Do you store my private keys or seed phrase?",
     a: "Never. We never see, request, or store your private keys. All transactions are signed locally in your wallet — we only receive the signed transaction to broadcast.",
   },

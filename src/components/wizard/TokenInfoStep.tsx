@@ -1,16 +1,37 @@
-import { useRef } from "react";
-import { Upload, Image as ImageIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { Upload, Image as ImageIcon, AlertCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
+
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 
 export function TokenInfoStep() {
   const { state, set, setStep } = useWizard();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [errors, setErrors] = useState<{ name?: string; symbol?: string; logo?: string }>({});
 
   function handleFile(file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) return;
+    if (!file.type.startsWith("image/")) {
+      setErrors((e) => ({ ...e, logo: "Please upload an image file (PNG, JPG, GIF)." }));
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setErrors((e) => ({ ...e, logo: "Logo must be 5MB or smaller." }));
+      return;
+    }
+    setErrors((e) => ({ ...e, logo: undefined }));
     set("tokenLogo", file);
     set("tokenLogoPreview", URL.createObjectURL(file));
+  }
+
+  function handleNext() {
+    const next: typeof errors = {};
+    if (!state.tokenName.trim()) next.name = "Token name is required.";
+    if (!state.tokenSymbol.trim()) next.symbol = "Token symbol is required.";
+    else if (state.tokenSymbol.trim().length < 2) next.symbol = "Symbol must be 2–5 characters.";
+    if (!state.tokenLogo) next.logo = "Please upload a token logo.";
+    setErrors(next);
+    if (Object.keys(next).length === 0) setStep(2);
   }
 
   return (
@@ -26,23 +47,39 @@ export function TokenInfoStep() {
         <input
           type="text"
           value={state.tokenName}
-          onChange={(e) => set("tokenName", e.target.value)}
+          onChange={(e) => {
+            set("tokenName", e.target.value);
+            if (errors.name) setErrors((er) => ({ ...er, name: undefined }));
+          }}
           placeholder="Cosmic Coin"
           className="input-dark"
+          aria-invalid={!!errors.name}
         />
-        <p className="helper">Enter the full name of your token</p>
+        {errors.name ? (
+          <FieldError msg={errors.name} />
+        ) : (
+          <p className="helper">Enter the full name of your token</p>
+        )}
       </Field>
 
       <Field label="Token Symbol" hint="On-chain identifier">
         <input
           type="text"
           value={state.tokenSymbol}
-          onChange={(e) => set("tokenSymbol", e.target.value.toUpperCase())}
+          onChange={(e) => {
+            set("tokenSymbol", e.target.value.toUpperCase());
+            if (errors.symbol) setErrors((er) => ({ ...er, symbol: undefined }));
+          }}
           placeholder="CSMC"
           maxLength={5}
           className="input-dark"
+          aria-invalid={!!errors.symbol}
         />
-        <p className="helper">Short symbol (2-5 characters) that identifies your token</p>
+        {errors.symbol ? (
+          <FieldError msg={errors.symbol} />
+        ) : (
+          <p className="helper">Short symbol (2-5 characters) that identifies your token</p>
+        )}
       </Field>
 
       <div>
@@ -91,21 +128,34 @@ export function TokenInfoStep() {
             onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
           />
         </div>
-        <p className="helper mt-2 flex items-center gap-1.5">
-          <ImageIcon className="h-3.5 w-3.5" />
-          Your logo will be stored on IPFS and linked in your token's on-chain metadata
-        </p>
+        {errors.logo ? (
+          <FieldError msg={errors.logo} />
+        ) : (
+          <p className="helper mt-2 flex items-center gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5" />
+            Your logo will be stored on IPFS and linked in your token's on-chain metadata
+          </p>
+        )}
       </div>
 
       <div className="flex justify-end pt-2">
         <button
-          onClick={() => setStep(2)}
+          onClick={handleNext}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
         >
           Next
         </button>
       </div>
     </div>
+  );
+}
+
+function FieldError({ msg }: { msg: string }) {
+  return (
+    <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-destructive">
+      <AlertCircle className="h-3.5 w-3.5" />
+      {msg}
+    </p>
   );
 }
 

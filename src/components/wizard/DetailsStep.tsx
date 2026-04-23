@@ -1,8 +1,49 @@
+import { useState } from "react";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
+import { useWallet } from "@/components/wallet/WalletContext";
+import { CreationModal, type CreationStage } from "./CreationModal";
 
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
+  const { wallet, openPicker } = useWallet();
+  const [stage, setStage] = useState<CreationStage | null>(null);
+  const [mintAddress, setMintAddress] = useState<string | undefined>();
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+
+  function genMintAddress() {
+    const chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let out = "";
+    for (let i = 0; i < 44; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  async function runCreation() {
+    setErrorMessage(undefined);
+    setMintAddress(undefined);
+
+    if (!wallet) {
+      openPicker();
+      return;
+    }
+    if (wallet.viewOnly) {
+      setStage("view-only-error");
+      return;
+    }
+
+    const sequence: CreationStage[] = ["preparing", "confirming", "processing", "creating"];
+    for (const s of sequence) {
+      setStage(s);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 900));
+    }
+    setMintAddress(genMintAddress());
+    setStage("success");
+  }
+
+  function handleCreate() {
+    void runCreation();
+  }
 
   return (
     <div className="space-y-6">
@@ -90,13 +131,27 @@ export function DetailsStep() {
           Back
         </button>
         <button
-          className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
+          onClick={handleCreate}
+          disabled={stage !== null && stage !== "success" && stage !== "error" && stage !== "view-only-error"}
+          className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
-          Create Token ({totalPrice.toFixed(2)} SOL)
+          {wallet ? `Create Token (${totalPrice.toFixed(2)} SOL)` : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
         </button>
       </div>
 
       <p className="text-center text-xs text-muted-foreground pt-2">24/7 Support Available</p>
+
+      <CreationModal
+        open={stage !== null}
+        stage={stage ?? "preparing"}
+        mintAddress={mintAddress}
+        errorMessage={errorMessage}
+        tokenName={state.tokenName}
+        tokenSymbol={state.tokenSymbol}
+        totalSol={totalPrice}
+        onClose={() => setStage(null)}
+        onRetry={handleCreate}
+      />
     </div>
   );
 }

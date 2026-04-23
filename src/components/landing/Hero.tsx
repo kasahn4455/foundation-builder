@@ -1,6 +1,7 @@
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Sparkles, ShieldCheck, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useWallet } from "@/components/wallet/WalletContext";
 
 function scrollTo(hash: string) {
   document.querySelector(hash)?.scrollIntoView({ behavior: "smooth" });
@@ -9,11 +10,21 @@ function scrollTo(hash: string) {
 export function Hero() {
   // Hero animates in immediately on mount (above the fold)
   const [mounted, setMounted] = useState(false);
+  const { wallet, openPicker } = useWallet();
+  const navigate = useNavigate();
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(id);
   }, []);
   const cls = (extra = "") => `reveal ${mounted ? "is-visible" : ""} ${extra}`;
+
+  function handlePrimary() {
+    if (wallet) {
+      void navigate({ to: "/create" });
+    } else {
+      openPicker();
+    }
+  }
 
   return (
     <section className="relative px-4 pt-28 pb-32 md:pt-36 md:pb-44 overflow-hidden">
@@ -102,13 +113,14 @@ export function Hero() {
           className={cls("mt-11 flex flex-col sm:flex-row gap-3 justify-center items-center")}
           style={{ transitionDelay: "0.4s" }}
         >
-          <Link
-            to="/create"
+          <button
+            type="button"
+            onClick={handlePrimary}
             className="btn-primary group inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-gradient-primary px-8 py-4 text-sm font-semibold text-primary-foreground shadow-glow"
           >
-            Connect Wallet to Start
+            {wallet ? "Continue to Wizard" : "Connect Wallet to Start"}
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </Link>
+          </button>
           <button
             onClick={() => scrollTo("#features")}
             className="btn-secondary inline-flex w-full sm:w-auto items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-8 py-4 text-sm font-semibold text-foreground/90 backdrop-blur-xl"

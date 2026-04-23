@@ -1,8 +1,10 @@
-import { Minus, Plus } from "lucide-react";
+import { useState } from "react";
+import { Minus, Plus, AlertCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 
 export function SupplyStep() {
   const { state, set, setStep } = useWizard();
+  const [supplyError, setSupplyError] = useState<string | undefined>();
 
   const supplyNum = Number(state.totalSupply.replace(/[^0-9]/g, "")) || 0;
   const formatted = supplyNum.toLocaleString();
@@ -98,6 +100,13 @@ export function SupplyStep() {
         </p>
       </div>
 
+      {supplyError && (
+        <p className="inline-flex items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" />
+          {supplyError}
+        </p>
+      )}
+
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 sm:justify-between">
         <button
           onClick={() => setStep(1)}
@@ -106,7 +115,14 @@ export function SupplyStep() {
           Previous Step
         </button>
         <button
-          onClick={() => setStep(3)}
+          onClick={() => {
+            if (supplyNum <= 0) {
+              setSupplyError("Total supply must be greater than zero.");
+              return;
+            }
+            setSupplyError(undefined);
+            setStep(3);
+          }}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
         >
           Continue

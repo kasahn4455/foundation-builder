@@ -1,4 +1,6 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { WalletProvider } from "@/components/wallet/WalletContext";
+import { WalletPickerModal } from "@/components/wallet/WalletPickerModal";
 
 import appCss from "../styles.css?url";
 
@@ -71,5 +73,10 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  return (
+    <WalletProvider>
+      <Outlet />
+      <WalletPickerModal />
+    </WalletProvider>
+  );
 }

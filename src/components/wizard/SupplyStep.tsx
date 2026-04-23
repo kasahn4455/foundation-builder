@@ -4,6 +4,7 @@ import { useWizard } from "./WizardContext";
 
 export function SupplyStep() {
   const { state, set, setStep } = useWizard();
+  const [supplyError, setSupplyError] = useState<string | undefined>();
 
   const supplyNum = Number(state.totalSupply.replace(/[^0-9]/g, "")) || 0;
   const formatted = supplyNum.toLocaleString();

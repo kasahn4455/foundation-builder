@@ -24,27 +24,32 @@ export function Faq() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="px-4 py-20">
+    <section id="faq" className="px-4 py-24 md:py-28">
       <div className="mx-auto max-w-3xl">
         <div className="text-center">
-          <h2 className="text-3xl md:text-4xl font-bold">Frequently asked questions</h2>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80 mb-3">FAQ</div>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">Frequently asked questions</h2>
         </div>
 
-        <div className="mt-10 space-y-3">
+        <div className="mt-12 space-y-3">
           {faqs.map((f, i) => {
             const isOpen = open === i;
             return (
               <div key={f.q} className="card-premium rounded-2xl overflow-hidden">
                 <button
                   onClick={() => setOpen(isOpen ? null : i)}
-                  className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
+                  className="w-full flex items-center justify-between gap-4 px-6 py-5 text-left"
                 >
-                  <span className="font-medium">{f.q}</span>
+                  <span className="font-medium tracking-tight">{f.q}</span>
                   <ChevronDown
-                    className={`h-5 w-5 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
+                    className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${isOpen ? "rotate-180 text-accent" : ""}`}
                   />
                 </button>
-                {isOpen && <div className="px-5 pb-5 text-sm text-muted-foreground">{f.a}</div>}
+                {isOpen && (
+                  <div className="px-6 pb-6 text-sm text-muted-foreground leading-relaxed border-t border-white/5 pt-4">
+                    {f.a}
+                  </div>
+                )}
               </div>
             );
           })}

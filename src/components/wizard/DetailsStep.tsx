@@ -351,7 +351,13 @@ export function DetailsStep() {
           disabled={stage !== null && stage !== "success" && stage !== "error"}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
-          {wallet ? `Create Token (${totalPrice.toFixed(2)} SOL)` : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
+          {wallet
+            ? state.cluster === "devnet"
+              ? "Create Token (Devnet · Free)"
+              : `Create Token (${totalPrice.toFixed(2)} SOL)`
+            : state.cluster === "devnet"
+              ? "Connect Wallet · Devnet Free"
+              : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
         </button>
       </div>
 

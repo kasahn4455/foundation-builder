@@ -122,3 +122,28 @@
   border: 1px solid oklch(0.32 0.05 280 / 60%);
   box-shadow: var(--shadow-card), inset 0 1px 0 oklch(1 0 0 / 4%);
 }
+
+@layer components {
+  .input-dark {
+    width: 100%;
+    border-radius: 0.75rem;
+    background-color: oklch(0.2 0.03 270);
+    border: 1px solid var(--color-border);
+    padding: 0.75rem 1rem;
+    color: var(--color-foreground);
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .input-dark::placeholder {
+    color: oklch(0.55 0.02 260);
+  }
+  .input-dark:focus {
+    border-color: var(--color-ring);
+    box-shadow: 0 0 0 3px oklch(0.62 0.24 295 / 25%);
+  }
+  .helper {
+    font-size: 0.8rem;
+    color: var(--color-muted-foreground);
+  }
+}

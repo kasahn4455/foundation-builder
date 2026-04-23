@@ -436,7 +436,7 @@ function AuthorityCard({
     <button
       type="button"
       onClick={onClick}
-      className={`card-premium rounded-2xl p-5 text-left transition flex flex-col h-full w-full ${checked ? "ring-2 ring-primary/60" : ""}`}
+      className="card-premium rounded-2xl p-5 text-left transition flex flex-col h-full w-full"
     >
       <div className="flex items-center justify-between">
         <h4 className="font-medium">{title}</h4>

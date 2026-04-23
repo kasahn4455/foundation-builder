@@ -92,22 +92,25 @@ export const createOrder = createServerFn({ method: "POST" })
 
     const recipient = getPlatformWallet(data.cluster);
 
+    const insertRow = {
+      wallet_address: data.wallet_address,
+      amount_sol: total,
+      status: "pending",
+      token_name: data.token_name,
+      token_symbol: data.token_symbol,
+      decimals: data.decimals,
+      // PostgREST accepts a string for NUMERIC columns; types are nominally number.
+      initial_supply: data.initial_supply as unknown as number,
+      cluster: data.cluster,
+      base_fee_sol: 0.3,
+      addon_fee_sol: addon,
+      selected_options: data.selected_options,
+      total_fee_sol: total,
+    };
+
     const { data: order, error } = await supabaseAdmin
       .from("orders")
-      .insert({
-        wallet_address: data.wallet_address,
-        amount_sol: total,
-        status: "pending",
-        token_name: data.token_name,
-        token_symbol: data.token_symbol,
-        decimals: data.decimals,
-        initial_supply: data.initial_supply,
-        cluster: data.cluster,
-        base_fee_sol: 0.3,
-        addon_fee_sol: addon,
-        selected_options: data.selected_options,
-        total_fee_sol: total,
-      })
+      .insert(insertRow)
       .select()
       .single();
 

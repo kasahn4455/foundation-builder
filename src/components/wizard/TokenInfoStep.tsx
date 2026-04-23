@@ -1,16 +1,37 @@
-import { useRef } from "react";
-import { Upload, Image as ImageIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { Upload, Image as ImageIcon, AlertCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
+
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
 
 export function TokenInfoStep() {
   const { state, set, setStep } = useWizard();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [errors, setErrors] = useState<{ name?: string; symbol?: string; logo?: string }>({});
 
   function handleFile(file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) return;
+    if (!file.type.startsWith("image/")) {
+      setErrors((e) => ({ ...e, logo: "Please upload an image file (PNG, JPG, GIF)." }));
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setErrors((e) => ({ ...e, logo: "Logo must be 5MB or smaller." }));
+      return;
+    }
+    setErrors((e) => ({ ...e, logo: undefined }));
     set("tokenLogo", file);
     set("tokenLogoPreview", URL.createObjectURL(file));
+  }
+
+  function handleNext() {
+    const next: typeof errors = {};
+    if (!state.tokenName.trim()) next.name = "Token name is required.";
+    if (!state.tokenSymbol.trim()) next.symbol = "Token symbol is required.";
+    else if (state.tokenSymbol.trim().length < 2) next.symbol = "Symbol must be 2–5 characters.";
+    if (!state.tokenLogo) next.logo = "Please upload a token logo.";
+    setErrors(next);
+    if (Object.keys(next).length === 0) setStep(2);
   }
 
   return (

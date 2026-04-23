@@ -97,6 +97,23 @@ export function DetailsStep() {
     };
 
     try {
+      // 0. Preflight — ensure wallet has enough SOL for fee + network costs
+      const NETWORK_BUFFER_SOL = 0.02;
+      const requiredSol = totalPrice + NETWORK_BUFFER_SOL;
+      try {
+        const balanceSol = await getWalletBalanceSol(wallet.address, state.cluster);
+        if (balanceSol < requiredSol) {
+          setErrorMessage(
+            `Insufficient SOL balance. You need enough SOL to cover the platform fee and network costs. Required ~${requiredSol.toFixed(2)} SOL, your balance is ${balanceSol.toFixed(4)} SOL.`,
+          );
+          setStage("error");
+          return;
+        }
+      } catch (balErr) {
+        console.warn("[wizard] balance preflight failed", balErr);
+        // Don't block the flow on RPC hiccups — payment step will surface real errors.
+      }
+
       // 1. Preparing — create order on the backend
       setStage("preparing");
       const order = await createOrder({

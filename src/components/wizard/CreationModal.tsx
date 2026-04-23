@@ -4,7 +4,6 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
-  Eye,
   Copy,
   ExternalLink,
   Check,
@@ -132,7 +131,7 @@ export function CreationModal({
         )}
 
         {/* Progress states */}
-        {stage !== "success" && stage !== "error" && stage !== "view-only-error" && (
+        {stage !== "success" && stage !== "error" && (
           <ProgressBody stage={stage} tokenName={tokenName} tokenSymbol={tokenSymbol} totalSol={totalSol} />
         )}
 
@@ -200,34 +199,6 @@ export function CreationModal({
           </div>
         )}
 
-        {/* View-only wallet error */}
-        {stage === "view-only-error" && (
-          <div className="text-center">
-            <div className="mx-auto h-16 w-16 rounded-full grid place-items-center bg-accent/15 border border-accent/30">
-              <Eye className="h-8 w-8 text-accent" />
-            </div>
-            <h3 className="mt-5 text-2xl font-semibold tracking-tight">Watch-only wallet</h3>
-            <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-              The connected wallet is view-only and cannot sign transactions. Reconnect with a
-              wallet that holds the keys to mint a token.
-            </p>
-            <div className="mt-6 grid gap-2 sm:grid-cols-2">
-              <button
-                onClick={onClose}
-                className="btn-secondary inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-semibold"
-              >
-                Close
-              </button>
-              <button
-                onClick={onRetry}
-                className="btn-primary inline-flex items-center justify-center rounded-full bg-gradient-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
-              >
-                Try Again
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Generic error */}
         {stage === "error" && (
           <div className="text-center">
@@ -238,7 +209,17 @@ export function CreationModal({
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
               {errorMessage || "Something went wrong while creating your token. Please try again."}
             </p>
-            {mintAddress && (
+            {paymentSignature && (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-left">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Payment signature (preserved)
+                </div>
+                <code className="mt-1 block text-xs font-mono text-foreground/90 break-all">
+                  {paymentSignature}
+                </code>
+              </div>
+            )}
+            {mintAddress && !paymentSignature && (
               <p className="mt-2 text-xs text-muted-foreground">
                 Reference: <code className="font-mono">{truncateAddress(mintAddress, 6, 6)}</code>
               </p>

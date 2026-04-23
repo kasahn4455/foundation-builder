@@ -37,16 +37,19 @@ export function DetailsStep() {
       revokeMint: args.revokeMint,
     });
 
-    await saveTokenResult({
-      data: {
-        order_id: args.orderId,
-        payment_signature: args.paymentSignature,
-        token_signature: mintRes.signature,
-        mint_address: mintRes.mintAddress,
-        ata_address: mintRes.ataAddress,
-        cluster: args.cluster,
-      },
-    });
+    // Devnet free-test mode mints without an order — skip backend persistence.
+    if (args.orderId !== "devnet-test") {
+      await saveTokenResult({
+        data: {
+          order_id: args.orderId,
+          payment_signature: args.paymentSignature,
+          token_signature: mintRes.signature,
+          mint_address: mintRes.mintAddress,
+          ata_address: mintRes.ataAddress,
+          cluster: args.cluster,
+        },
+      });
+    }
 
     setMintAddress(mintRes.mintAddress);
     setPendingMint(null);
@@ -96,15 +99,19 @@ export function DetailsStep() {
       revokeUpdate: state.revokeUpdate,
     };
 
+    const isDevnetFreeMode = state.cluster === "devnet";
+
     try {
       // 0. Preflight — ensure wallet has enough SOL for fee + network costs
       const NETWORK_BUFFER_SOL = 0.02;
-      const requiredSol = totalPrice + NETWORK_BUFFER_SOL;
+      const requiredSol = isDevnetFreeMode ? NETWORK_BUFFER_SOL : totalPrice + NETWORK_BUFFER_SOL;
       try {
         const balanceSol = await getWalletBalanceSol(wallet.address, state.cluster);
         if (balanceSol < requiredSol) {
           setErrorMessage(
-            `Insufficient SOL balance. You need enough SOL to cover the platform fee and network costs. Required ~${requiredSol.toFixed(2)} SOL, your balance is ${balanceSol.toFixed(4)} SOL.`,
+            isDevnetFreeMode
+              ? `Insufficient devnet SOL. Fund this wallet with devnet SOL from a faucet before minting. (Need ~${requiredSol.toFixed(3)} SOL, balance ${balanceSol.toFixed(4)} SOL.)`
+              : `Insufficient SOL balance. You need enough SOL to cover the platform fee and network costs. Required ~${requiredSol.toFixed(2)} SOL, your balance is ${balanceSol.toFixed(4)} SOL.`,
           );
           setStage("error");
           return;
@@ -112,6 +119,30 @@ export function DetailsStep() {
       } catch (balErr) {
         console.warn("[wizard] balance preflight failed", balErr);
         // Don't block the flow on RPC hiccups — payment step will surface real errors.
+      }
+
+      // DEVNET FREE TEST MODE: skip order creation, payment, and verification.
+      // Mint directly so devs can test the full minting path without paying.
+      if (isDevnetFreeMode) {
+        const devMintAttempt = {
+          orderId: "devnet-test",
+          paymentSignature: "devnet-test",
+          walletAddress: wallet.address,
+          cluster: state.cluster,
+          decimals: state.decimals,
+          initialSupply: supplyDigits,
+          revokeFreeze: state.revokeFreeze,
+          revokeMint: state.revokeMint,
+        } as const;
+        setPendingMint(devMintAttempt);
+        try {
+          await completeMint(devMintAttempt);
+        } catch (mintErr) {
+          const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+          setErrorMessage(msg);
+          setStage("error");
+        }
+        return;
       }
 
       // 1. Preparing — create order on the backend
@@ -301,6 +332,11 @@ export function DetailsStep() {
             </button>
           </div>
         </div>
+        {state.cluster === "devnet" && (
+          <p className="mt-3 text-xs text-success">
+            Devnet test mode: platform fee is disabled. Only devnet network/account costs apply.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 sm:justify-between">
@@ -315,7 +351,13 @@ export function DetailsStep() {
           disabled={stage !== null && stage !== "success" && stage !== "error"}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
-          {wallet ? `Create Token (${totalPrice.toFixed(2)} SOL)` : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
+          {wallet
+            ? state.cluster === "devnet"
+              ? "Create Token (Devnet · Free)"
+              : `Create Token (${totalPrice.toFixed(2)} SOL)`
+            : state.cluster === "devnet"
+              ? "Connect Wallet · Devnet Free"
+              : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
         </button>
       </div>
 

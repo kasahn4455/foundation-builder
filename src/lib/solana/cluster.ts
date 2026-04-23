@@ -39,16 +39,18 @@ export function rpcForCluster(cluster: Cluster): string {
     const buildUrl = configured ? String(configured).trim() : "";
     const runtimeUrl = readRuntimeMainnetRpc();
     const url = buildUrl || runtimeUrl;
+    const isHttp = url.startsWith("http://") || url.startsWith("https://");
     if (typeof window !== "undefined") {
       // eslint-disable-next-line no-console
       console.info(
         "[solana] cluster=mainnet",
         "frontendRpcEnvPresent=", Boolean(buildUrl),
         "runtimeRpcPresent=", Boolean(runtimeUrl),
-        "rpcHost=", url ? safeHost(url) : "(missing)",
+        "startsWithHttps=", url.startsWith("https://"),
+        "rpcHost=", url && isHttp ? safeHost(url) : "(missing-or-invalid)",
       );
     }
-    if (!url) throw new MissingMainnetRpcError();
+    if (!url || !isHttp) throw new MissingMainnetRpcError();
     return url;
   }
   const configured = import.meta.env.VITE_SOLANA_DEVNET_RPC_URL;

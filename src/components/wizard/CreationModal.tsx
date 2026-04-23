@@ -17,8 +17,7 @@ export type CreationStage =
   | "processing"
   | "creating"
   | "success"
-  | "error"
-  | "view-only-error";
+  | "error";
 
 type ProgressStage = "preparing" | "confirming" | "processing" | "creating";
 const stageOrder: ProgressStage[] = ["preparing", "confirming", "processing", "creating"];
@@ -33,10 +32,12 @@ export type CreationModalProps = {
   open: boolean;
   stage: CreationStage;
   mintAddress?: string;
+  paymentSignature?: string;
   errorMessage?: string;
   tokenName?: string;
   tokenSymbol?: string;
   totalSol?: number;
+  cluster?: "devnet" | "mainnet";
   onClose: () => void;
   onRetry: () => void;
 };
@@ -45,10 +46,12 @@ export function CreationModal({
   open,
   stage,
   mintAddress,
+  paymentSignature,
   errorMessage,
   tokenName,
   tokenSymbol,
   totalSol,
+  cluster = "devnet",
   onClose,
   onRetry,
 }: CreationModalProps) {
@@ -69,7 +72,7 @@ export function CreationModal({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (stage === "success" || stage === "error" || stage === "view-only-error") onClose();
+      if (stage === "success" || stage === "error") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -77,7 +80,7 @@ export function CreationModal({
 
   if (!open) return null;
 
-  const isTerminal = stage === "success" || stage === "error" || stage === "view-only-error";
+  const isTerminal = stage === "success" || stage === "error";
 
   async function copyMint() {
     if (!mintAddress) return;
@@ -92,7 +95,8 @@ export function CreationModal({
 
   function openExplorer() {
     if (!mintAddress) return;
-    window.open(`https://solscan.io/token/${mintAddress}`, "_blank", "noopener,noreferrer");
+    const suffix = cluster === "mainnet" ? "" : `?cluster=${cluster}`;
+    window.open(`https://solscan.io/token/${mintAddress}${suffix}`, "_blank", "noopener,noreferrer");
   }
 
   function openRaydium() {

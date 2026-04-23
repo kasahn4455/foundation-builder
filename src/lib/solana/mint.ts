@@ -209,40 +209,40 @@ export async function mintToken({
   let { blockhash, lastValidBlockHeight } = await freshBlockhash();
   let tx = buildTx(blockhash, lastValidBlockHeight);
 
+  // Strategy: ALWAYS sign locally and broadcast via our (Helius) RPC. Wallet-managed
+  // signAndSendTransaction often routes through a slow public RPC, causing the tx to
+  // land after the blockhash window closes. Local sign + our RPC + active rebroadcast
+  // is the most reliable path on mainnet.
   let signature: string;
   try {
-    if (provider.signAndSendTransaction) {
-      try {
+    let signed;
+    try {
+      signed = await provider.signTransaction(tx);
+    } catch (signErr) {
+      // Some wallets only expose signAndSendTransaction. Fall back to that path.
+      if (provider.signAndSendTransaction) {
         const res = await provider.signAndSendTransaction(tx);
         signature = res.signature;
-      } catch {
-        // Fallback path: rebuild with a brand-new blockhash so we don't reuse a stale one
-        // that aged out during the failed first attempt.
-        ({ blockhash, lastValidBlockHeight } = await freshBlockhash());
-        tx = buildTx(blockhash, lastValidBlockHeight);
-        const signed = await provider.signTransaction(tx);
-        signature = await sendAndConfirmRawTransaction(
-          connection,
-          Buffer.from(signed.serialize()),
-          { commitment: "confirmed" },
-        );
+        await confirmWithRebroadcast(connection, signature, blockhash, lastValidBlockHeight, null);
+        return { mintAddress: mintPk.toBase58(), ataAddress: ata.toBase58(), signature };
       }
-    } else {
-      const signed = await provider.signTransaction(tx);
-      signature = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false,
-      });
+      throw signErr;
     }
 
-    await connection.confirmTransaction(
-      { signature, blockhash, lastValidBlockHeight },
-      "confirmed",
-    );
+    const rawTx = signed.serialize();
+    // Send via our RPC. skipPreflight=true avoids a wasted simulate roundtrip and
+    // gets the tx into the leader's mempool faster.
+    signature = await connection.sendRawTransaction(rawTx, {
+      skipPreflight: true,
+      maxRetries: 5,
+    });
+
+    await confirmWithRebroadcast(connection, signature, blockhash, lastValidBlockHeight, rawTx);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Mint transaction expired before it was confirmed on-chain (network was slow or signing took too long). Please click Retry to build a fresh transaction.",
+        "Mint transaction expired before it landed on-chain. The network was congested or signing took too long. Please click Retry to build a fresh transaction.",
       );
     }
     throw err;

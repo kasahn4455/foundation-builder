@@ -4,6 +4,7 @@ import { StepProgress } from "@/components/wizard/StepProgress";
 import { TokenInfoStep } from "@/components/wizard/TokenInfoStep";
 import { SupplyStep } from "@/components/wizard/SupplyStep";
 import { DetailsStep } from "@/components/wizard/DetailsStep";
+import { Wordmark } from "@/components/brand/Wordmark";
 
 export const Route = createFileRoute("/create")({
   head: () => ({
@@ -34,8 +35,8 @@ function CreatePage() {
       <div className="min-h-screen flex flex-col">
         <header className="sticky top-0 z-30 backdrop-blur-xl bg-background/70 border-b border-border">
           <div className="mx-auto max-w-5xl px-4 h-16 flex items-center justify-between">
-            <Link to="/" className="text-xl font-bold text-gradient">
-              MemeMinting
+            <Link to="/" className="inline-flex items-center" aria-label="MemeMinting home">
+              <Wordmark size="md" />
             </Link>
             <button className="rounded-full border border-border bg-card/60 px-4 py-2 text-xs font-medium hover:bg-card transition">
               Connect Wallet

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import { Wordmark } from "@/components/brand/Wordmark";
 
 const links = [
   { label: "Create Token", to: "/create" },
@@ -20,8 +21,8 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/60 border-b border-white/5">
       <div className="mx-auto max-w-6xl px-4 h-16 flex items-center justify-between">
-        <Link to="/" className="text-xl font-bold tracking-tight text-gradient">
-          MemeMinting
+        <Link to="/" className="inline-flex items-center" aria-label="MemeMinting home">
+          <Wordmark size="md" />
         </Link>
 
         <nav className="hidden md:flex items-center gap-6 text-sm">

@@ -1,8 +1,49 @@
+import { useState } from "react";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
+import { useWallet } from "@/components/wallet/WalletContext";
+import { CreationModal, type CreationStage } from "./CreationModal";
 
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
+  const { wallet, openPicker } = useWallet();
+  const [stage, setStage] = useState<CreationStage | null>(null);
+  const [mintAddress, setMintAddress] = useState<string | undefined>();
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+
+  function genMintAddress() {
+    const chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let out = "";
+    for (let i = 0; i < 44; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  async function runCreation() {
+    setErrorMessage(undefined);
+    setMintAddress(undefined);
+
+    if (!wallet) {
+      openPicker();
+      return;
+    }
+    if (wallet.viewOnly) {
+      setStage("view-only-error");
+      return;
+    }
+
+    const sequence: CreationStage[] = ["preparing", "confirming", "processing", "creating"];
+    for (const s of sequence) {
+      setStage(s);
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 900));
+    }
+    setMintAddress(genMintAddress());
+    setStage("success");
+  }
+
+  function handleCreate() {
+    void runCreation();
+  }
 
   return (
     <div className="space-y-6">

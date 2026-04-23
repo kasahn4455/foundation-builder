@@ -183,19 +183,83 @@
 
 @utility card-premium {
   position: relative;
+  border-radius: 1.25rem;
   background:
-    linear-gradient(180deg, oklch(0.17 0.025 270 / 90%), oklch(0.135 0.02 270 / 90%));
-  border: 1px solid oklch(1 0 0 / 6%);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(8px);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+    linear-gradient(180deg, oklch(0.185 0.025 270 / 92%) 0%, oklch(0.14 0.02 270 / 94%) 100%);
+  border: 1px solid oklch(1 0 0 / 7%);
+  box-shadow:
+    /* outer ambient depth */
+    0 1px 0 oklch(1 0 0 / 4%) inset,
+    0 -1px 0 oklch(0 0 0 / 30%) inset,
+    0 1px 2px oklch(0 0 0 / 25%),
+    0 12px 28px -12px oklch(0 0 0 / 55%),
+    0 28px 60px -30px oklch(0 0 0 / 50%);
+  transition:
+    border-color 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.4s ease;
+  isolation: isolate;
+}
+/* Soft top hairline highlight — adds tactile depth without glassmorphism */
+.card-premium::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    180deg,
+    oklch(1 0 0 / 10%) 0%,
+    oklch(1 0 0 / 2%) 30%,
+    transparent 60%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.9;
+  transition: opacity 0.4s ease;
+  z-index: 1;
+}
+/* Inner subtle radial sheen */
+.card-premium::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    120% 60% at 50% 0%,
+    oklch(0.66 0.22 290 / 6%) 0%,
+    transparent 60%
+  );
+  pointer-events: none;
+  opacity: 0.6;
+  transition: opacity 0.4s ease;
+  z-index: 0;
+}
+.card-premium > * { position: relative; z-index: 2; }
+
+@media (hover: hover) and (pointer: fine) {
+  .card-premium:hover {
+    border-color: oklch(0.66 0.22 290 / 22%);
+    transform: translateY(-2px);
+    background:
+      linear-gradient(180deg, oklch(0.2 0.028 275 / 94%) 0%, oklch(0.145 0.022 270 / 96%) 100%);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 6%) inset,
+      0 -1px 0 oklch(0 0 0 / 30%) inset,
+      0 2px 4px oklch(0 0 0 / 25%),
+      0 18px 40px -14px oklch(0 0 0 / 55%),
+      0 36px 80px -30px oklch(0.66 0.22 290 / 28%);
+  }
+  .card-premium:hover::after { opacity: 1; }
+  .card-premium:hover::before { opacity: 1; }
 }
 @utility card-premium-hover {
   transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
-}
-.card-premium:hover {
-  border-color: oklch(0.66 0.22 290 / 30%);
-  box-shadow: var(--shadow-elevated);
 }
 
 @utility hairline {

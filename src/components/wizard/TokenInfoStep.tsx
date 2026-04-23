@@ -47,23 +47,39 @@ export function TokenInfoStep() {
         <input
           type="text"
           value={state.tokenName}
-          onChange={(e) => set("tokenName", e.target.value)}
+          onChange={(e) => {
+            set("tokenName", e.target.value);
+            if (errors.name) setErrors((er) => ({ ...er, name: undefined }));
+          }}
           placeholder="Cosmic Coin"
           className="input-dark"
+          aria-invalid={!!errors.name}
         />
-        <p className="helper">Enter the full name of your token</p>
+        {errors.name ? (
+          <FieldError msg={errors.name} />
+        ) : (
+          <p className="helper">Enter the full name of your token</p>
+        )}
       </Field>
 
       <Field label="Token Symbol" hint="On-chain identifier">
         <input
           type="text"
           value={state.tokenSymbol}
-          onChange={(e) => set("tokenSymbol", e.target.value.toUpperCase())}
+          onChange={(e) => {
+            set("tokenSymbol", e.target.value.toUpperCase());
+            if (errors.symbol) setErrors((er) => ({ ...er, symbol: undefined }));
+          }}
           placeholder="CSMC"
           maxLength={5}
           className="input-dark"
+          aria-invalid={!!errors.symbol}
         />
-        <p className="helper">Short symbol (2-5 characters) that identifies your token</p>
+        {errors.symbol ? (
+          <FieldError msg={errors.symbol} />
+        ) : (
+          <p className="helper">Short symbol (2-5 characters) that identifies your token</p>
+        )}
       </Field>
 
       <div>

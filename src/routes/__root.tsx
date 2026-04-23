@@ -60,12 +60,16 @@ export const Route = createRootRoute({
 });
 
 function RootShell({ children }: { children: React.ReactNode }) {
+  const runtimeMainnetRpc = process.env.SOLANA_MAINNET_RPC_URL?.trim() || "";
+  const runtimeConfigScript = `window.__SOLANA_RPC_CONFIG__ = ${JSON.stringify({ mainnetRpcUrl: runtimeMainnetRpc })};`;
+
   return (
     <html lang="en">
       <head>
         <HeadContent />
       </head>
       <body>
+        <script dangerouslySetInnerHTML={{ __html: runtimeConfigScript }} />
         {children}
         <Scripts />
       </body>

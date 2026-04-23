@@ -44,7 +44,7 @@ export function Navbar() {
 
         <Link
           to="/create"
-          className="hidden md:inline-flex items-center rounded-full bg-gradient-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-glow"
+          className="btn-primary hidden md:inline-flex items-center rounded-full bg-gradient-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-glow"
         >
           Connect Wallet
         </Link>
@@ -87,7 +87,7 @@ export function Navbar() {
             <Link
               to="/create"
               onClick={() => setOpen(false)}
-              className="mt-2 inline-flex justify-center rounded-full bg-gradient-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"
+              className="btn-primary mt-2 inline-flex justify-center rounded-full bg-gradient-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"
             >
               Connect Wallet
             </Link>

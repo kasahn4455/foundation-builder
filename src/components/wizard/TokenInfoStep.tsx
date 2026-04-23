@@ -100,7 +100,7 @@ export function TokenInfoStep() {
       <div className="flex justify-end pt-2">
         <button
           onClick={() => setStep(2)}
-          className="w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
+          className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
         >
           Next
         </button>

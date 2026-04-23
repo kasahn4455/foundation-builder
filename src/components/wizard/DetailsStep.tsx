@@ -85,12 +85,12 @@ export function DetailsStep() {
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 sm:justify-between">
         <button
           onClick={() => setStep(2)}
-          className="w-full sm:w-auto rounded-full border border-border bg-card/60 px-6 py-3 text-sm font-semibold hover:bg-card transition"
+          className="btn-secondary w-full sm:w-auto rounded-full border border-white/10 bg-card/60 px-6 py-3 text-sm font-semibold"
         >
           Back
         </button>
         <button
-          className="w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
+          className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
         >
           Create Token ({totalPrice.toFixed(2)} SOL)
         </button>

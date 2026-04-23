@@ -25,7 +25,7 @@ export function CtaSection() {
           </p>
           <Link
             to="/create"
-            className="mt-9 inline-flex items-center rounded-full bg-gradient-primary px-8 py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:scale-[1.02]"
+            className="btn-primary mt-9 inline-flex items-center rounded-full bg-gradient-primary px-8 py-3.5 text-sm font-semibold text-primary-foreground shadow-glow"
           >
             Create Your Token
           </Link>

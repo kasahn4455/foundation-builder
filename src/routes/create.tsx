@@ -34,13 +34,11 @@ function CreatePage() {
     <WizardProvider>
       <div className="min-h-screen flex flex-col">
         <header className="sticky top-0 z-30 backdrop-blur-xl bg-background/70 border-b border-border">
-          <div className="mx-auto max-w-5xl px-4 h-16 flex items-center justify-between">
+          <div className="mx-auto max-w-5xl px-4 h-16 flex items-center justify-between gap-3">
             <Link to="/" className="inline-flex items-center" aria-label="MemeMinting home">
               <Wordmark size="md" />
             </Link>
-            <button className="rounded-full border border-border bg-card/60 px-4 py-2 text-xs font-medium hover:bg-card transition">
-              Connect Wallet
-            </button>
+            <WizardHeaderConnect />
           </div>
         </header>
 

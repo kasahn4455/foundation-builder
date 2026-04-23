@@ -131,13 +131,27 @@ export function DetailsStep() {
           Back
         </button>
         <button
-          className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
+          onClick={handleCreate}
+          disabled={stage !== null && stage !== "success" && stage !== "error" && stage !== "view-only-error"}
+          className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
-          Create Token ({totalPrice.toFixed(2)} SOL)
+          {wallet ? `Create Token (${totalPrice.toFixed(2)} SOL)` : `Connect Wallet · ${totalPrice.toFixed(2)} SOL`}
         </button>
       </div>
 
       <p className="text-center text-xs text-muted-foreground pt-2">24/7 Support Available</p>
+
+      <CreationModal
+        open={stage !== null}
+        stage={stage ?? "preparing"}
+        mintAddress={mintAddress}
+        errorMessage={errorMessage}
+        tokenName={state.tokenName}
+        tokenSymbol={state.tokenSymbol}
+        totalSol={totalPrice}
+        onClose={() => setStage(null)}
+        onRetry={handleCreate}
+      />
     </div>
   );
 }

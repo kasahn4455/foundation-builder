@@ -436,7 +436,7 @@ function AuthorityCard({
     <button
       type="button"
       onClick={onClick}
-      className={`card-premium rounded-2xl p-5 text-left transition ${checked ? "ring-2 ring-primary/60" : ""}`}
+      className={`card-premium rounded-2xl p-5 text-left transition flex flex-col h-full hover:ring-2 hover:ring-primary/40 ${checked ? "ring-2 ring-primary/60 hover:ring-primary/60" : ""}`}
     >
       <div className="flex items-center justify-between">
         <h4 className="font-medium">{title}</h4>
@@ -445,14 +445,16 @@ function AuthorityCard({
         </span>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">{desc}</p>
-      <div
-        className={`mt-4 rounded-xl px-3 py-2 text-center text-sm font-medium ${
-          checked
-            ? "bg-gradient-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground border border-border"
-        }`}
-      >
-        {checked ? "Selected (Will Revoke)" : "Not Selected"}
+      <div className="mt-auto pt-4">
+        <div
+          className={`rounded-xl px-3 py-2 text-center text-sm font-medium ${
+            checked
+              ? "bg-gradient-primary text-primary-foreground"
+              : "bg-muted text-muted-foreground border border-border"
+          }`}
+        >
+          {checked ? "Selected (Will Revoke)" : "Not Selected"}
+        </div>
       </div>
     </button>
   );

@@ -39,12 +39,31 @@ export async function sendPayment({
   amountSol,
   cluster,
 }: SendPaymentArgs): Promise<string> {
-  const connection = new Connection(rpcForCluster(cluster), "confirmed");
+  const rpcUrl = rpcForCluster(cluster);
+  console.info("[mint] sendPayment cluster=", cluster, "rpc=", rpcUrl);
+  const connection = new Connection(rpcUrl, "confirmed");
   const fromPk = new PublicKey(assertSolanaAddress(fromAddress, "Sender wallet address"));
   const toPk = new PublicKey(assertSolanaAddress(toAddress, "Recipient wallet address"));
   const lamports = Math.round(amountSol * LAMPORTS_PER_SOL);
 
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  let blockhash: string;
+  let lastValidBlockHeight: number;
+  try {
+    const bh = await connection.getLatestBlockhash("confirmed");
+    blockhash = bh.blockhash;
+    lastValidBlockHeight = bh.lastValidBlockHeight;
+  } catch (err) {
+    console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
+    if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
+      throw new Error(
+        "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
+          "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC (Helius, QuickNode, Triton, Alchemy) and reload.",
+      );
+    }
+    throw new Error(
+      `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   const tx = new Transaction({
     feePayer: fromPk,

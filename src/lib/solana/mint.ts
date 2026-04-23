@@ -7,7 +7,6 @@ import {
   SystemProgram,
   Transaction,
   Keypair,
-  sendAndConfirmRawTransaction,
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -209,40 +208,40 @@ export async function mintToken({
   let { blockhash, lastValidBlockHeight } = await freshBlockhash();
   let tx = buildTx(blockhash, lastValidBlockHeight);
 
+  // Strategy: ALWAYS sign locally and broadcast via our (Helius) RPC. Wallet-managed
+  // signAndSendTransaction often routes through a slow public RPC, causing the tx to
+  // land after the blockhash window closes. Local sign + our RPC + active rebroadcast
+  // is the most reliable path on mainnet.
   let signature: string;
   try {
-    if (provider.signAndSendTransaction) {
-      try {
+    let signed;
+    try {
+      signed = await provider.signTransaction(tx);
+    } catch (signErr) {
+      // Some wallets only expose signAndSendTransaction. Fall back to that path.
+      if (provider.signAndSendTransaction) {
         const res = await provider.signAndSendTransaction(tx);
         signature = res.signature;
-      } catch {
-        // Fallback path: rebuild with a brand-new blockhash so we don't reuse a stale one
-        // that aged out during the failed first attempt.
-        ({ blockhash, lastValidBlockHeight } = await freshBlockhash());
-        tx = buildTx(blockhash, lastValidBlockHeight);
-        const signed = await provider.signTransaction(tx);
-        signature = await sendAndConfirmRawTransaction(
-          connection,
-          Buffer.from(signed.serialize()),
-          { commitment: "confirmed" },
-        );
+        await confirmWithRebroadcast(connection, signature, blockhash, lastValidBlockHeight, null);
+        return { mintAddress: mintPk.toBase58(), ataAddress: ata.toBase58(), signature };
       }
-    } else {
-      const signed = await provider.signTransaction(tx);
-      signature = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false,
-      });
+      throw signErr;
     }
 
-    await connection.confirmTransaction(
-      { signature, blockhash, lastValidBlockHeight },
-      "confirmed",
-    );
+    const rawTx = signed.serialize();
+    // Send via our RPC. skipPreflight=true avoids a wasted simulate roundtrip and
+    // gets the tx into the leader's mempool faster.
+    signature = await connection.sendRawTransaction(rawTx, {
+      skipPreflight: true,
+      maxRetries: 5,
+    });
+
+    await confirmWithRebroadcast(connection, signature, blockhash, lastValidBlockHeight, rawTx);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Mint transaction expired before it was confirmed on-chain (network was slow or signing took too long). Please click Retry to build a fresh transaction.",
+        "Mint transaction expired before it landed on-chain. The network was congested or signing took too long. Please click Retry to build a fresh transaction.",
       );
     }
     throw err;
@@ -253,4 +252,80 @@ export async function mintToken({
     ataAddress: ata.toBase58(),
     signature,
   };
+}
+
+/**
+ * Confirms a transaction signature while actively rebroadcasting the raw bytes
+ * (when available) until either:
+ *   - the signature is confirmed at "confirmed" commitment, OR
+ *   - the current block height passes lastValidBlockHeight (expired).
+ *
+ * This avoids the common mainnet failure where a tx is signed but never lands
+ * because the leader dropped it and nothing rebroadcasts it before the
+ * blockhash window closes.
+ */
+async function confirmWithRebroadcast(
+  connection: Connection,
+  signature: string,
+  blockhash: string,
+  lastValidBlockHeight: number,
+  rawTx: Uint8Array | null,
+): Promise<void> {
+  const startedAt = Date.now();
+  const HARD_TIMEOUT_MS = 90_000;
+
+  while (true) {
+    // 1. Check if the tx has landed.
+    const { value } = await connection.getSignatureStatuses([signature]);
+    const status = value[0];
+    if (status) {
+      if (status.err) {
+        throw new Error(
+          `Transaction failed on-chain: ${JSON.stringify(status.err)}`,
+        );
+      }
+      if (
+        status.confirmationStatus === "confirmed" ||
+        status.confirmationStatus === "finalized"
+      ) {
+        return;
+      }
+    }
+
+    // 2. Check expiry: if current block height passed lastValidBlockHeight, give up.
+    let blockHeight: number;
+    try {
+      blockHeight = await connection.getBlockHeight("confirmed");
+    } catch {
+      blockHeight = 0;
+    }
+    if (blockHeight > lastValidBlockHeight) {
+      throw new Error(
+        `Signature ${signature} has expired: block height exceeded.`,
+      );
+    }
+
+    if (Date.now() - startedAt > HARD_TIMEOUT_MS) {
+      throw new Error(
+        `Signature ${signature} confirmation timed out after 90s.`,
+      );
+    }
+
+    // 3. Rebroadcast the raw tx (best-effort) to keep it alive in the mempool.
+    if (rawTx) {
+      try {
+        await connection.sendRawTransaction(rawTx, {
+          skipPreflight: true,
+          maxRetries: 0,
+        });
+      } catch {
+        // Ignore rebroadcast errors — the polling loop above is the source of truth.
+      }
+    }
+
+    // Avoid hammering the RPC.
+    await new Promise((r) => setTimeout(r, 1500));
+    // Reference blockhash to keep param meaningful for future tweaks.
+    void blockhash;
+  }
 }

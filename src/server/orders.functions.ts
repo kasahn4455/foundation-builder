@@ -64,14 +64,22 @@ function getPlatformWallet(cluster: "devnet" | "mainnet"): string {
 }
 
 function getRpc(cluster: "devnet" | "mainnet"): string {
+  const envVar =
+    cluster === "mainnet" ? process.env.SOLANA_MAINNET_RPC_URL : process.env.SOLANA_DEVNET_RPC_URL;
+  const present = Boolean(envVar && envVar.trim());
   const url =
-    cluster === "mainnet"
-      ? process.env.SOLANA_MAINNET_RPC_URL
-      : process.env.SOLANA_DEVNET_RPC_URL;
-  if (url) return url;
-  return cluster === "mainnet"
-    ? "https://api.mainnet-beta.solana.com"
-    : "https://api.devnet.solana.com";
+    (envVar && envVar.trim()) ||
+    (cluster === "mainnet"
+      ? "https://api.mainnet-beta.solana.com"
+      : "https://api.devnet.solana.com");
+  let host = "(invalid-url)";
+  try {
+    host = new URL(url).host;
+  } catch {}
+  console.info(
+    `[orders] backend cluster=${cluster} backendRpcEnvPresent=${present} rpcHost=${host}`,
+  );
+  return url;
 }
 
 // Re-derive total from selected_options server-side. This is the authoritative

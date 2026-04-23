@@ -27,13 +27,30 @@ export function rpcForCluster(cluster: Cluster): string {
     const url = configured ? String(configured).trim() : "";
     if (typeof window !== "undefined") {
       // eslint-disable-next-line no-console
-      console.info("[solana] cluster=mainnet rpc=", url || "(missing)", "configured=", Boolean(url));
+      console.info(
+        "[solana] cluster=mainnet",
+        "frontendRpcEnvPresent=", Boolean(url),
+        "rpcHost=", url ? safeHost(url) : "(missing)",
+      );
     }
     if (!url) throw new MissingMainnetRpcError();
     return url;
   }
   const configured = import.meta.env.VITE_SOLANA_DEVNET_RPC_URL;
-  return (configured && String(configured).trim()) || PUBLIC_DEVNET_RPC;
+  const url = (configured && String(configured).trim()) || PUBLIC_DEVNET_RPC;
+  if (typeof window !== "undefined") {
+    // eslint-disable-next-line no-console
+    console.info("[solana] cluster=devnet rpcHost=", safeHost(url));
+  }
+  return url;
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "(invalid-url)";
+  }
 }
 
 /** Detects the “public mainnet RPC blocks browsers” 403 case for friendlier UI errors. */

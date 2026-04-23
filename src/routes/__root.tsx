@@ -59,8 +59,19 @@ export const Route = createRootRoute({
   notFoundComponent: NotFoundComponent,
 });
 
+function sanitizeRpcUrl(raw: string | undefined): string {
+  if (!raw) return "";
+  let v = raw.trim().replace(/^["']|["']$/g, "");
+  // Strip accidental "KEY=value" paste (e.g. "SOLANA_MAINNET_RPC_URL=https://...")
+  const eq = v.indexOf("=");
+  if (eq !== -1 && /^[A-Z_][A-Z0-9_]*$/.test(v.slice(0, eq).trim())) {
+    v = v.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+  }
+  return v.startsWith("http://") || v.startsWith("https://") ? v : "";
+}
+
 function RootShell({ children }: { children: React.ReactNode }) {
-  const runtimeMainnetRpc = process.env.SOLANA_MAINNET_RPC_URL?.trim() || "";
+  const runtimeMainnetRpc = sanitizeRpcUrl(process.env.SOLANA_MAINNET_RPC_URL);
   const runtimeConfigScript = `window.__SOLANA_RPC_CONFIG__ = ${JSON.stringify({ mainnetRpcUrl: runtimeMainnetRpc })};`;
 
   return (

@@ -332,6 +332,11 @@ export function DetailsStep() {
             </button>
           </div>
         </div>
+        {state.cluster === "devnet" && (
+          <p className="mt-3 text-xs text-success">
+            Devnet test mode: platform fee is disabled. Only devnet network/account costs apply.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 sm:justify-between">

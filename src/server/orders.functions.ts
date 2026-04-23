@@ -1,0 +1,245 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+
+const ClusterSchema = z.enum(["devnet", "mainnet"]);
+
+const SelectedOptionsSchema = z.object({
+  modifyCreator: z.boolean(),
+  customAddress: z.boolean(),
+  revokeFreeze: z.boolean(),
+  revokeMint: z.boolean(),
+  revokeUpdate: z.boolean(),
+});
+
+const CreateOrderInput = z.object({
+  wallet_address: z.string().min(32).max(44),
+  token_name: z.string().min(1).max(64),
+  token_symbol: z.string().min(1).max(16),
+  decimals: z.number().int().min(0).max(9),
+  initial_supply: z.string().regex(/^\d+$/).max(40),
+  cluster: ClusterSchema,
+  base_fee_sol: z.number().min(0).max(10),
+  addon_fee_sol: z.number().min(0).max(10),
+  selected_options: SelectedOptionsSchema,
+  total_fee_sol: z.number().min(0).max(20),
+});
+
+const VerifyPaymentInput = z.object({
+  order_id: z.string().uuid(),
+  wallet_address: z.string().min(32).max(44),
+  payment_signature: z.string().min(32).max(128),
+  cluster: ClusterSchema,
+});
+
+const SaveTokenResultInput = z.object({
+  order_id: z.string().uuid(),
+  payment_signature: z.string().min(32).max(128),
+  token_signature: z.string().min(32).max(128),
+  mint_address: z.string().min(32).max(44),
+  ata_address: z.string().min(32).max(44),
+  cluster: ClusterSchema,
+});
+
+function getPlatformWallet(cluster: "devnet" | "mainnet"): string {
+  const w =
+    cluster === "mainnet"
+      ? process.env.PLATFORM_WALLET_MAINNET
+      : process.env.PLATFORM_WALLET_DEVNET;
+  if (!w) throw new Error(`Platform wallet for ${cluster} is not configured`);
+  return w;
+}
+
+function getRpc(cluster: "devnet" | "mainnet"): string {
+  const url =
+    cluster === "mainnet"
+      ? process.env.SOLANA_MAINNET_RPC_URL
+      : process.env.SOLANA_DEVNET_RPC_URL;
+  if (url) return url;
+  return cluster === "mainnet"
+    ? "https://api.mainnet-beta.solana.com"
+    : "https://api.devnet.solana.com";
+}
+
+// Re-derive total from selected_options server-side. This is the authoritative
+// fee model — never trust the client's claimed total_fee_sol blindly.
+function recomputeTotal(
+  base: number,
+  selected: z.infer<typeof SelectedOptionsSchema>,
+): { addon: number; total: number } {
+  const addonCount = Object.values(selected).filter(Boolean).length;
+  const addon = round9(addonCount * 0.1);
+  const total = round9(base + addon);
+  return { addon, total };
+}
+
+function round9(n: number): number {
+  return Math.round(n * 1e9) / 1e9;
+}
+
+export const createOrder = createServerFn({ method: "POST" })
+  .inputValidator((input) => CreateOrderInput.parse(input))
+  .handler(async ({ data }) => {
+    // Authoritative recompute. Reject if client claims wrong total.
+    if (data.base_fee_sol !== 0.3) {
+      throw new Error("Invalid base_fee_sol");
+    }
+    const { addon, total } = recomputeTotal(0.3, data.selected_options);
+    if (round9(data.addon_fee_sol) !== addon || round9(data.total_fee_sol) !== total) {
+      throw new Error("Pricing mismatch");
+    }
+
+    const recipient = getPlatformWallet(data.cluster);
+
+    const { data: order, error } = await supabaseAdmin
+      .from("orders")
+      .insert({
+        wallet_address: data.wallet_address,
+        amount_sol: total,
+        status: "pending",
+        token_name: data.token_name,
+        token_symbol: data.token_symbol,
+        decimals: data.decimals,
+        initial_supply: data.initial_supply,
+        cluster: data.cluster,
+        base_fee_sol: 0.3,
+        addon_fee_sol: addon,
+        selected_options: data.selected_options,
+        total_fee_sol: total,
+      })
+      .select()
+      .single();
+
+    if (error || !order) {
+      console.error("createOrder insert failed:", error);
+      throw new Error("Failed to create order");
+    }
+
+    return {
+      order_id: order.id,
+      recipient_wallet: recipient,
+      amount_sol: total,
+      base_fee_sol: 0.3,
+      addon_fee_sol: addon,
+      selected_options: data.selected_options,
+      total_fee_sol: total,
+    };
+  });
+
+export const verifyPayment = createServerFn({ method: "POST" })
+  .inputValidator((input) => VerifyPaymentInput.parse(input))
+  .handler(async ({ data }) => {
+    const { data: order, error: loadErr } = await supabaseAdmin
+      .from("orders")
+      .select("*")
+      .eq("id", data.order_id)
+      .single();
+
+    if (loadErr || !order) throw new Error("Order not found");
+    if (order.status === "paid" || order.status === "minted") {
+      throw new Error("Order already paid");
+    }
+    if (order.cluster !== data.cluster) throw new Error("Cluster mismatch");
+    if (order.wallet_address !== data.wallet_address) {
+      throw new Error("Wallet mismatch");
+    }
+
+    const recipient = getPlatformWallet(data.cluster);
+    const connection = new Connection(getRpc(data.cluster), "confirmed");
+
+    // Fetch on-chain transaction
+    const tx = await connection.getTransaction(data.payment_signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+
+    if (!tx) throw new Error("Transaction not found on-chain");
+    if (tx.meta?.err) throw new Error("Transaction failed on-chain");
+
+    // Compute net SOL transferred from sender to recipient via balance deltas.
+    const accountKeys =
+      tx.transaction.message.getAccountKeys?.() ??
+      // Legacy fallback for non-versioned messages
+      ({ get: (i: number) => (tx.transaction.message as any).accountKeys?.[i] } as any);
+
+    const numKeys =
+      (accountKeys.length as number | undefined) ??
+      (tx.transaction.message as any).accountKeys?.length ??
+      0;
+
+    const senderPk = new PublicKey(data.wallet_address);
+    const recipientPk = new PublicKey(recipient);
+
+    let senderIdx = -1;
+    let recipientIdx = -1;
+    for (let i = 0; i < numKeys; i++) {
+      const k: PublicKey | undefined =
+        typeof accountKeys.get === "function"
+          ? accountKeys.get(i)
+          : (tx.transaction.message as any).accountKeys?.[i];
+      if (!k) continue;
+      if (k.equals(senderPk)) senderIdx = i;
+      if (k.equals(recipientPk)) recipientIdx = i;
+    }
+    if (senderIdx < 0) throw new Error("Sender not in transaction");
+    if (recipientIdx < 0) throw new Error("Platform recipient not in transaction");
+
+    const pre = tx.meta?.preBalances ?? [];
+    const post = tx.meta?.postBalances ?? [];
+    const recipientDeltaLamports = (post[recipientIdx] ?? 0) - (pre[recipientIdx] ?? 0);
+    const expectedLamports = Math.round(Number(order.total_fee_sol) * LAMPORTS_PER_SOL);
+
+    if (recipientDeltaLamports < expectedLamports) {
+      throw new Error(
+        `Underpayment: expected ${expectedLamports} lamports, got ${recipientDeltaLamports}`,
+      );
+    }
+
+    const { error: updErr } = await supabaseAdmin
+      .from("orders")
+      .update({ status: "paid", payment_signature: data.payment_signature })
+      .eq("id", order.id)
+      .eq("status", "pending");
+
+    if (updErr) {
+      console.error("verifyPayment update failed:", updErr);
+      throw new Error("Failed to mark order paid");
+    }
+
+    return { ok: true, order_id: order.id };
+  });
+
+export const saveTokenResult = createServerFn({ method: "POST" })
+  .inputValidator((input) => SaveTokenResultInput.parse(input))
+  .handler(async ({ data }) => {
+    const { data: order, error: loadErr } = await supabaseAdmin
+      .from("orders")
+      .select("id, status, payment_signature, cluster")
+      .eq("id", data.order_id)
+      .single();
+
+    if (loadErr || !order) throw new Error("Order not found");
+    if (order.status !== "paid") throw new Error("Order is not paid");
+    if (order.payment_signature !== data.payment_signature) {
+      throw new Error("Payment signature mismatch");
+    }
+    if (order.cluster !== data.cluster) throw new Error("Cluster mismatch");
+
+    const { error: updErr } = await supabaseAdmin
+      .from("orders")
+      .update({
+        status: "minted",
+        token_signature: data.token_signature,
+        mint_address: data.mint_address,
+        ata_address: data.ata_address,
+      })
+      .eq("id", order.id);
+
+    if (updErr) {
+      console.error("saveTokenResult update failed:", updErr);
+      throw new Error("Failed to save token result");
+    }
+
+    return { ok: true };
+  });

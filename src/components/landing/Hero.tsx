@@ -104,8 +104,22 @@ export function Hero() {
         >
           <span className="block text-foreground/95">Launch your Solana token</span>
           <span className="block mt-2 md:mt-3">
-            in <span className="text-gradient">minutes, not days</span>
+            in{" "}
+            <span
+              style={{
+                letterSpacing: "-0.04em",
+                fontFeatureSettings: '"ss01", "cv11", "kern", "ss03"',
+                backgroundImage:
+                  "linear-gradient(135deg, oklch(0.78 0.18 295) 0%, oklch(0.7 0.2 280) 35%, oklch(0.78 0.16 220) 70%, oklch(0.82 0.14 195) 100%)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                color: "transparent",
+              }}
+            >
+              minutes, not days
+            </span>
           </span>
+
         </h1>
 
         <p

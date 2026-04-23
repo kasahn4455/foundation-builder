@@ -22,6 +22,7 @@ import {
 } from "@solana/spl-token";
 import type { SolanaProvider } from "@/components/wallet/WalletContext";
 import { rpcForCluster, type Cluster } from "./cluster";
+import { assertSolanaAddress } from "./address";
 
 export type SendPaymentArgs = {
   provider: SolanaProvider;
@@ -39,8 +40,8 @@ export async function sendPayment({
   cluster,
 }: SendPaymentArgs): Promise<string> {
   const connection = new Connection(rpcForCluster(cluster), "confirmed");
-  const fromPk = new PublicKey(fromAddress);
-  const toPk = new PublicKey(toAddress);
+  const fromPk = new PublicKey(assertSolanaAddress(fromAddress, "Sender wallet address"));
+  const toPk = new PublicKey(assertSolanaAddress(toAddress, "Recipient wallet address"));
   const lamports = Math.round(amountSol * LAMPORTS_PER_SOL);
 
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
@@ -109,7 +110,7 @@ export async function mintToken({
   revokeMint,
 }: MintTokenArgs): Promise<MintTokenResult> {
   const connection = new Connection(rpcForCluster(cluster), "confirmed");
-  const payer = new PublicKey(payerAddress);
+  const payer = new PublicKey(assertSolanaAddress(payerAddress, "Payer wallet address"));
 
   const mintKeypair = Keypair.generate();
   const mintPk = mintKeypair.publicKey;

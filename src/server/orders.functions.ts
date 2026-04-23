@@ -43,11 +43,19 @@ const SaveTokenResultInput = z.object({
 });
 
 function getPlatformWallet(cluster: "devnet" | "mainnet"): string {
-  const w =
+  const raw =
     cluster === "mainnet"
       ? process.env.PLATFORM_WALLET_MAINNET
       : process.env.PLATFORM_WALLET_DEVNET;
-  if (!w) throw new Error(`Platform wallet for ${cluster} is not configured`);
+  if (!raw) throw new Error(`Platform wallet for ${cluster} is not configured`);
+  // Strip accidental quotes/whitespace from secret entry.
+  const w = raw.trim().replace(/^["']|["']$/g, "");
+  // Validate before returning so a bad env var fails server-side, not in the wallet.
+  try {
+    new PublicKey(w);
+  } catch {
+    throw new Error(`Platform wallet for ${cluster} is not a valid Base58 address`);
+  }
   return w;
 }
 

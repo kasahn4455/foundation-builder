@@ -4,7 +4,7 @@ import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
 import { CreationModal, type CreationStage } from "./CreationModal";
 import { createOrder, verifyPayment, saveTokenResult } from "@/server/orders.functions";
-import { sendPayment, mintToken } from "@/lib/solana/mint";
+import { sendPayment, mintToken, getWalletBalanceSol } from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
 
 export function DetailsStep() {

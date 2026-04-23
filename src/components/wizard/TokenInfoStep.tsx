@@ -128,21 +128,34 @@ export function TokenInfoStep() {
             onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
           />
         </div>
-        <p className="helper mt-2 flex items-center gap-1.5">
-          <ImageIcon className="h-3.5 w-3.5" />
-          Your logo will be stored on IPFS and linked in your token's on-chain metadata
-        </p>
+        {errors.logo ? (
+          <FieldError msg={errors.logo} />
+        ) : (
+          <p className="helper mt-2 flex items-center gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5" />
+            Your logo will be stored on IPFS and linked in your token's on-chain metadata
+          </p>
+        )}
       </div>
 
       <div className="flex justify-end pt-2">
         <button
-          onClick={() => setStep(2)}
+          onClick={handleNext}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
         >
           Next
         </button>
       </div>
     </div>
+  );
+}
+
+function FieldError({ msg }: { msg: string }) {
+  return (
+    <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-destructive">
+      <AlertCircle className="h-3.5 w-3.5" />
+      {msg}
+    </p>
   );
 }
 

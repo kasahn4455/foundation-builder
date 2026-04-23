@@ -37,16 +37,19 @@ export function DetailsStep() {
       revokeMint: args.revokeMint,
     });
 
-    await saveTokenResult({
-      data: {
-        order_id: args.orderId,
-        payment_signature: args.paymentSignature,
-        token_signature: mintRes.signature,
-        mint_address: mintRes.mintAddress,
-        ata_address: mintRes.ataAddress,
-        cluster: args.cluster,
-      },
-    });
+    // Devnet free-test mode mints without an order — skip backend persistence.
+    if (args.orderId !== "devnet-test") {
+      await saveTokenResult({
+        data: {
+          order_id: args.orderId,
+          payment_signature: args.paymentSignature,
+          token_signature: mintRes.signature,
+          mint_address: mintRes.mintAddress,
+          ata_address: mintRes.ataAddress,
+          cluster: args.cluster,
+        },
+      });
+    }
 
     setMintAddress(mintRes.mintAddress);
     setPendingMint(null);

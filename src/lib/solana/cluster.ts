@@ -2,34 +2,49 @@ export type Cluster = "devnet" | "mainnet";
 
 const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
 
+declare global {
+  interface Window {
+    __SOLANA_RPC_CONFIG__?: {
+      mainnetRpcUrl?: string;
+    };
+  }
+}
+
 export class MissingMainnetRpcError extends Error {
   constructor() {
     super(
-      "Mainnet RPC is not configured. Set VITE_SOLANA_MAINNET_RPC_URL to your Helius (or other) mainnet RPC URL and reload the app.",
+      "Mainnet RPC is not configured. Add VITE_SOLANA_MAINNET_RPC_URL as a build secret or SOLANA_MAINNET_RPC_URL as a backend secret and reload the app.",
     );
     this.name = "MissingMainnetRpcError";
   }
 }
 
+function readRuntimeMainnetRpc(): string {
+  if (typeof window === "undefined") return "";
+  return window.__SOLANA_RPC_CONFIG__?.mainnetRpcUrl?.trim() || "";
+}
+
 /**
  * Returns the RPC URL for the given cluster.
  *
- * Mainnet (browser): REQUIRES `VITE_SOLANA_MAINNET_RPC_URL`. We do NOT fall
- * back to the public endpoint because it blocks browser CORS with HTTP 403.
- * If missing, throws `MissingMainnetRpcError` so the UI can render a clear
- * message instead of a generic blockhash failure.
+ * Mainnet (browser): prefers `VITE_SOLANA_MAINNET_RPC_URL`, then falls back to
+ * a runtime-injected mainnet RPC from the server so preview environments can
+ * still use the configured secret without touching devnet logic.
  *
  * Devnet: falls back to the public devnet endpoint (CORS-friendly).
  */
 export function rpcForCluster(cluster: Cluster): string {
   if (cluster === "mainnet") {
     const configured = import.meta.env.VITE_SOLANA_MAINNET_RPC_URL;
-    const url = configured ? String(configured).trim() : "";
+    const buildUrl = configured ? String(configured).trim() : "";
+    const runtimeUrl = readRuntimeMainnetRpc();
+    const url = buildUrl || runtimeUrl;
     if (typeof window !== "undefined") {
       // eslint-disable-next-line no-console
       console.info(
         "[solana] cluster=mainnet",
-        "frontendRpcEnvPresent=", Boolean(url),
+        "frontendRpcEnvPresent=", Boolean(buildUrl),
+        "runtimeRpcPresent=", Boolean(runtimeUrl),
         "rpcHost=", url ? safeHost(url) : "(missing)",
       );
     }

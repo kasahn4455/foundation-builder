@@ -37,6 +37,12 @@ export type CreationModalProps = {
   tokenSymbol?: string;
   totalSol?: number;
   cluster?: "devnet" | "mainnet";
+  /** Live progress while the vanity-suffix grinder is running. */
+  vanityProgress?: { attempts: number; elapsedMs: number };
+  /** The suffix the user requested, shown in the progress UI. */
+  vanitySuffix?: string;
+  /** Cancels the in-flight vanity grinder. */
+  onCancelVanity?: () => void;
   onClose: () => void;
   onRetry: () => void;
 };

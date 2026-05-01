@@ -74,12 +74,15 @@ export async function sendPayment({
     console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
     if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
       throw new Error(
-        "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
-          "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC (Helius, QuickNode, Triton, Alchemy) and reload.",
+        "Solana mainnet RPC is unreachable from your browser (the public endpoint blocked the request). " +
+          "No payment was attempted. Please reload and try again, or contact support if this keeps happening.",
       );
     }
+    const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
+      cluster === "mainnet"
+        ? `Could not reach Solana mainnet to start the payment. No SOL was charged. Please check your connection and try again. (${reason})`
+        : `Failed to reach Solana devnet RPC: ${reason}`,
     );
   }
 
@@ -120,18 +123,26 @@ export async function sendPayment({
     }
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Payment transaction expired before it was confirmed (network was slow). " +
-          "No charge was made — please click Try Again to send a fresh payment.",
+        "Your payment transaction expired before the network could confirm it (Solana was slow or the wallet took too long to sign). " +
+          "No SOL was charged. Please click Try Again to send a fresh payment.",
+      );
+    }
+    if (/insufficient|0x1$|debit an account|InsufficientFundsForRent/i.test(msg)) {
+      throw new Error(
+        cluster === "mainnet"
+          ? "Insufficient SOL in your wallet to cover the platform fee plus Solana network costs. No charge was made — please add more SOL and try again."
+          : "Insufficient devnet SOL to cover network costs. Please fund this wallet from a devnet faucet and try again.",
       );
     }
     if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
       throw new Error(
-        "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
-          "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC and reload.",
+        "Solana mainnet RPC is unreachable from your browser. No payment was confirmed. Please reload and try again.",
       );
     }
     throw new Error(
-      `Payment failed on Solana ${cluster}: ${msg}`,
+      cluster === "mainnet"
+        ? `Payment failed on Solana mainnet: ${msg}`
+        : `Payment failed on Solana devnet: ${msg}`,
     );
   }
 }
@@ -305,12 +316,15 @@ export async function mintToken({
       console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
       if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
         throw new Error(
-          "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
-            "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC and reload.",
+          "Solana mainnet RPC is unreachable from your browser. The mint transaction was not built. " +
+            "If you already paid, click Try Again — your payment is preserved and will not be re-charged.",
         );
       }
+      const reason = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
+        cluster === "mainnet"
+          ? `Could not reach Solana mainnet to build the mint transaction. (${reason}) Please click Try Again.`
+          : `Failed to reach Solana devnet RPC: ${reason}`,
       );
     }
   }
@@ -586,7 +600,21 @@ export async function mintToken({
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
+        cluster === "mainnet"
+          ? "Your mint transaction expired before Solana mainnet could confirm it. Your payment is preserved — click Try Again to rebuild and resend the mint without paying again."
+          : "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
+      );
+    }
+    if (/insufficient|0x1$|debit an account|InsufficientFundsForRent/i.test(msg)) {
+      throw new Error(
+        cluster === "mainnet"
+          ? "Insufficient SOL in your wallet to cover Solana network costs for the mint transaction. Add more SOL and click Try Again — your payment is preserved."
+          : "Insufficient devnet SOL to cover the mint transaction. Fund this wallet from a devnet faucet and try again.",
+      );
+    }
+    if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
+      throw new Error(
+        "Solana mainnet RPC is unreachable from your browser. Your payment is preserved — please click Try Again.",
       );
     }
     throw err;

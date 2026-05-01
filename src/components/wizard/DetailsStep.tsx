@@ -913,15 +913,16 @@ export function DetailsStep() {
     // Flips in the same tick as the click so a fast double-click (or any
     // duplicate handler invocation) cannot start a second runCreation()
     // before the first one calls setStage(...) and disables the button.
+    const currentStage = flow.stage;
     console.info("[wizard] create button click start", {
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
-      stage,
+      stage: currentStage,
     });
-    if (stage !== null && stage !== "error") {
+    if (currentStage !== "idle" && currentStage !== "error") {
       console.warn("[wizard] duplicate create attempt blocked", {
         reason: "modal-state-not-retryable",
-        stage,
+        stage: currentStage,
         hasPendingMint: Boolean(pendingMint),
       });
       return;
@@ -929,7 +930,7 @@ export function DetailsStep() {
     if (isRunningRef.current || actionLocked) {
       console.warn("[wizard] duplicate create attempt blocked", {
         reason: "action-lock-active",
-        stage,
+        stage: currentStage,
         hasPendingMint: Boolean(pendingMint),
       });
       return;
@@ -956,9 +957,9 @@ export function DetailsStep() {
     });
   }
 
-  const finalResult = terminalSnapshot?.kind === "success" ? terminalSnapshot.result : null;
-  const stableErrorMessage = terminalSnapshot?.kind === "error" ? terminalSnapshot.message : errorMessage;
-  const modalStage: CreationStage = terminalSnapshot?.kind ?? stage ?? "preparing";
+  const finalResult = flow.terminalSnapshot?.kind === "success" ? flow.terminalSnapshot.result : null;
+  const stableErrorMessage = flow.terminalSnapshot?.kind === "error" ? flow.terminalSnapshot.message : undefined;
+  const modalStage: CreationStage = flow.stage === "idle" ? "preparing" : flow.stage;
 
   return (
     <div className="space-y-6">

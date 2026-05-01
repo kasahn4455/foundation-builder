@@ -118,9 +118,27 @@ export function DetailsStep() {
   }> {
     const mintAddr = mintKeypair.publicKey.toBase58();
 
+    // Validate the logo BEFORE base64-encoding so a huge/wrong-type file
+    // surfaces a clean error instead of OOM-ing the encoder or producing a
+    // confusing zod failure on the server.
     let imageBase64: string | undefined;
     let imageMime: string | undefined;
     if (state.tokenLogo) {
+      const MAX_LOGO_BYTES = 5 * 1024 * 1024; // matches server-side cap
+      const ALLOWED_MIME = /^image\/(png|jpeg|jpg|gif|webp|svg\+xml)$/i;
+      if (state.tokenLogo.size === 0) {
+        throw new Error("Token logo file is empty. Please re-upload the image.");
+      }
+      if (state.tokenLogo.size > MAX_LOGO_BYTES) {
+        throw new Error(
+          `Token logo is too large (${(state.tokenLogo.size / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
+        );
+      }
+      if (!state.tokenLogo.type || !ALLOWED_MIME.test(state.tokenLogo.type)) {
+        throw new Error(
+          `Unsupported logo format "${state.tokenLogo.type || "unknown"}". Use PNG, JPG, GIF, WEBP, or SVG.`,
+        );
+      }
       imageBase64 = await fileToBase64(state.tokenLogo);
       imageMime = state.tokenLogo.type;
     }
@@ -156,20 +174,48 @@ export function DetailsStep() {
           address: "",
         };
 
-    const res = await uploadTokenMetadata({
-      data: {
-        mint_address: mintAddr,
-        name: state.tokenName.trim(),
-        symbol: state.tokenSymbol.trim(),
-        description: state.description || "",
-        image_base64: imageBase64,
-        image_mime: imageMime,
-        external_url: socials?.website || "",
-        socials,
-        creator,
-      },
+    console.info("[wizard] uploading metadata", {
+      mint: mintAddr,
+      hasLogo: Boolean(imageBase64),
+      logoMime: imageMime,
+      socialsEnabled: state.socialsEnabled,
+      modifyCreator: state.modifyCreator,
     });
 
+    let res: Awaited<ReturnType<typeof uploadTokenMetadata>>;
+    try {
+      res = await uploadTokenMetadata({
+        data: {
+          mint_address: mintAddr,
+          name: state.tokenName.trim(),
+          symbol: state.tokenSymbol.trim(),
+          description: state.description || "",
+          image_base64: imageBase64,
+          image_mime: imageMime,
+          external_url: socials?.website || "",
+          socials,
+          creator,
+        },
+      });
+    } catch (uploadErr) {
+      // Surface metadata failure with a clear, mint-stopping error. The outer
+      // catch in runCreation will set stage="error" so the user sees this in
+      // the modal — we DO NOT continue to mint with a placeholder URI.
+      const reason = uploadErr instanceof Error ? uploadErr.message : "Unknown error";
+      console.error("[wizard] metadata upload failed", { mint: mintAddr, reason });
+      throw new Error(`Could not prepare token metadata: ${reason}`);
+    }
+
+    if (!res?.uri || !/^https:\/\//i.test(res.uri)) {
+      console.error("[wizard] metadata upload returned invalid URI", { mint: mintAddr, res });
+      throw new Error("Metadata upload returned an invalid URI. Aborting mint.");
+    }
+
+    console.info("[wizard] metadata ready", {
+      mint: mintAddr,
+      uri: res.uri,
+      image_url: res.image_url,
+    });
 
     return {
       mintKeypair,

@@ -61,6 +61,14 @@ export function DetailsStep() {
     revokeUpdate: boolean;
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
+    /**
+     * When true, server-side payment verification has not yet succeeded for
+     * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
+     * retry we MUST re-run verifyPayment first — never createOrder/sendPayment
+     * again — because verifyPayment is idempotent server-side for the same
+     * (order_id, signature) pair and will not re-charge the user.
+     */
+    needsVerify?: boolean;
   } | null>(null);
 
   // Safety net: if the user navigates away mid-grind (or the component
@@ -293,7 +301,27 @@ export function DetailsStep() {
       // free-test where no real payment exists.
       setPaymentSig(isDevnetTestRetry ? undefined : pendingMint.paymentSignature);
       try {
-        await completeMint(pendingMint);
+        // If a previous attempt sent the payment but verifyPayment failed
+        // (e.g. RPC hiccup), re-run verifyPayment first. The server is
+        // idempotent for the same (order_id, signature) pair — it will NOT
+        // re-charge the user. Only after verify succeeds do we mint.
+        if (pendingMint.needsVerify && !isDevnetTestRetry) {
+          setStage("processing");
+          await verifyPayment({
+            data: {
+              order_id: pendingMint.orderId,
+              wallet_address: pendingMint.walletAddress,
+              payment_signature: pendingMint.paymentSignature,
+              cluster: pendingMint.cluster,
+            },
+          });
+          // Verified — clear the flag so future retries skip straight to mint.
+          const verified = { ...pendingMint, needsVerify: false };
+          setPendingMint(verified);
+          await completeMint(verified);
+        } else {
+          await completeMint(pendingMint);
+        }
         console.info("[wizard] retry mint succeeded", {
           orderId: pendingMint.orderId,
           paymentSignature: pendingMint.paymentSignature,
@@ -501,16 +529,50 @@ export function DetailsStep() {
       });
       setPaymentSig(sig);
 
-      // 3. Processing — backend verifies on-chain
+      // 3. Processing — backend verifies on-chain. If this step fails AFTER
+      // payment was sent (RPC hiccup, transient backend error), seed
+      // `pendingMint` with `needsVerify: true` so Retry re-runs verifyPayment
+      // (idempotent server-side) instead of creating a new order + charging
+      // the wallet a second time.
       setStage("processing");
-      await verifyPayment({
-        data: {
-          order_id: order.order_id,
-          wallet_address: wallet.address,
-          payment_signature: sig,
+      try {
+        await verifyPayment({
+          data: {
+            order_id: order.order_id,
+            wallet_address: wallet.address,
+            payment_signature: sig,
+            cluster: state.cluster,
+          },
+        });
+      } catch (verifyErr) {
+        const verifyMsg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+        console.error("[wizard] PAYMENT_OK_VERIFY_FAILED — payment preserved, retry will re-verify (no recharge)", {
+          orderId: order.order_id,
+          paymentSignature: sig,
           cluster: state.cluster,
-        },
-      });
+          err: verifyErr,
+        });
+        setPendingMint({
+          orderId: order.order_id,
+          paymentSignature: sig,
+          walletAddress: wallet.address,
+          cluster: state.cluster,
+          decimals: state.decimals,
+          initialSupply: supplyDigits,
+          revokeFreeze: state.revokeFreeze,
+          revokeMint: state.revokeMint,
+          revokeUpdate: state.revokeUpdate,
+          mintKeypair: prepared.mintKeypair,
+          metadata: prepared.metadata,
+          needsVerify: true,
+        });
+        setErrorMessage(
+          `Payment was sent on-chain but the server could not verify it just now (${verifyMsg}). ` +
+            `You will not be charged again — click Retry Mint to re-verify and finish minting.`,
+        );
+        setStage("error");
+        return;
+      }
 
       const mintAttempt = {
         orderId: order.order_id,

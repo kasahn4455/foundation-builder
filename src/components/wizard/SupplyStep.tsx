@@ -96,7 +96,7 @@ export function SupplyStep() {
           className="input-dark resize-none"
         />
         <p className="helper mt-2">
-          This description will be stored in your token's on-chain metadata and displayed in wallets and explorers.
+          This description is stored in your token's metadata JSON (linked from the on-chain URI) and shown in wallets and explorers that fetch it.
         </p>
       </div>
 

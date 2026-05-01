@@ -33,11 +33,11 @@ const faqs = [
   },
   {
     q: "Can I add a custom logo and metadata to my token?",
-    a: "Yes. You can set the name, symbol, decimals, supply, and upload a logo and description during the wizard. Metadata is stored on-chain via the Metaplex standard.",
+    a: "Yes. You can set the name, symbol, decimals, supply, and upload a logo and description during the wizard. Metadata is written on-chain using the Token-2022 Token Metadata extension, with the logo and JSON manifest hosted in public storage and referenced by HTTPS URI.",
   },
   {
     q: "What happens if the transaction fails?",
-    a: "If the on-chain mint fails after payment, our system detects it and you can retry the mint at no extra cost. If payment never confirms, no token is created and no fee is taken.",
+    a: "If the on-chain mint fails after payment, the wizard shows a clear error and a Retry button that rebuilds the mint without charging again — your payment is preserved. If payment never confirms, no token is created and no fee is taken.",
   },
   {
     q: "Can I sell my token after minting?",

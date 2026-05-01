@@ -45,6 +45,9 @@ export function DetailsStep() {
     initialSupply: string;
     revokeFreeze: boolean;
     revokeMint: boolean;
+    revokeUpdate: boolean;
+    mintKeypair: Keypair;
+    metadata: { name: string; symbol: string; uri: string };
   } | null>(null);
 
   async function completeMint(args: NonNullable<typeof pendingMint>) {
@@ -57,6 +60,9 @@ export function DetailsStep() {
       initialSupply: args.initialSupply,
       revokeFreeze: args.revokeFreeze,
       revokeMint: args.revokeMint,
+      revokeUpdate: args.revokeUpdate,
+      mintKeypair: args.mintKeypair,
+      metadata: args.metadata,
     });
 
     // Devnet free-test mode mints without an order — skip backend persistence.
@@ -76,6 +82,57 @@ export function DetailsStep() {
     setMintAddress(mintRes.mintAddress);
     setPendingMint(null);
     setStage("success");
+  }
+
+  /**
+   * Generates the mint keypair and uploads the off-chain JSON metadata.
+   * Must run BEFORE the on-chain mint tx because the Token-2022 TokenMetadata
+   * extension needs the final HTTPS `uri` at initialization time.
+   */
+  async function prepareMetadata(): Promise<{
+    mintKeypair: Keypair;
+    metadata: { name: string; symbol: string; uri: string };
+  }> {
+    const mintKeypair = generateMintKeypair();
+    const mintAddr = mintKeypair.publicKey.toBase58();
+
+    let imageBase64: string | undefined;
+    let imageMime: string | undefined;
+    if (state.tokenLogo) {
+      imageBase64 = await fileToBase64(state.tokenLogo);
+      imageMime = state.tokenLogo.type;
+    }
+
+    const socials = state.socialsEnabled
+      ? {
+          website: state.website || "",
+          twitter: state.twitter || "",
+          telegram: state.telegram || "",
+          discord: state.discord || "",
+        }
+      : undefined;
+
+    const res = await uploadTokenMetadata({
+      data: {
+        mint_address: mintAddr,
+        name: state.tokenName.trim(),
+        symbol: state.tokenSymbol.trim(),
+        description: state.description || "",
+        image_base64: imageBase64,
+        image_mime: imageMime,
+        external_url: socials?.website || "",
+        socials,
+      },
+    });
+
+    return {
+      mintKeypair,
+      metadata: {
+        name: state.tokenName.trim(),
+        symbol: state.tokenSymbol.trim(),
+        uri: res.uri,
+      },
+    };
   }
 
   async function runCreation() {

@@ -76,18 +76,48 @@ function extFromMime(mime: string): string {
 
 function publicUrlFor(path: string): string {
   const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  const url = data?.publicUrl ?? "";
+  // Sanity-check: getPublicUrl synthesizes the URL and never throws even when
+  // the bucket is private or misconfigured — so verify shape ourselves so the
+  // mint flow can't proceed with an unreachable on-chain `uri`.
+  if (!url || !/^https:\/\//i.test(url)) {
+    throw new Error(
+      `Storage public URL for "${path}" is not a valid HTTPS URL. ` +
+        `Verify the "${BUCKET}" bucket exists and is public.`,
+    );
+  }
+  return url;
 }
 
 export const uploadTokenMetadata = createServerFn({ method: "POST" })
   .inputValidator((input) => UploadInput.parse(input))
   .handler(async ({ data }) => {
     const prefix = data.mint_address;
+    const t0 = Date.now();
+    console.info("[metadata] upload start", {
+      mint: prefix,
+      hasImage: Boolean(data.image_base64 && data.image_mime),
+      imageMime: data.image_mime,
+      imageBase64Len: data.image_base64?.length ?? 0,
+      hasSocials: Boolean(data.socials && Object.keys(data.socials).length),
+      hasCreator: Boolean(data.creator),
+    });
 
     // 1. Upload image (if provided)
     let imageUrl: string | undefined;
     if (data.image_base64 && data.image_mime) {
       const bytes = Buffer.from(data.image_base64, "base64");
+      // Server-side defensive size cap (~5MB decoded). Wallets reject huge
+      // images and Storage object size is rate-limited too.
+      const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+      if (bytes.byteLength === 0) {
+        throw new Error("Token logo decoded to 0 bytes — please re-upload the image.");
+      }
+      if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        throw new Error(
+          `Token logo is too large (${(bytes.byteLength / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
+        );
+      }
       const ext = extFromMime(data.image_mime);
       const imagePath = `${prefix}/logo.${ext}`;
       const { error: imgErr } = await supabaseAdmin.storage
@@ -97,10 +127,22 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
           upsert: true,
         });
       if (imgErr) {
-        console.error("[metadata] image upload failed", imgErr);
+        console.error("[metadata] image upload failed", {
+          mint: prefix,
+          path: imagePath,
+          bytes: bytes.byteLength,
+          mime: data.image_mime,
+          err: imgErr,
+        });
         throw new Error("Failed to upload token logo");
       }
       imageUrl = publicUrlFor(imagePath);
+      console.info("[metadata] image uploaded", {
+        mint: prefix,
+        path: imagePath,
+        bytes: bytes.byteLength,
+        url: imageUrl,
+      });
     }
 
     // 2. Build the off-chain JSON manifest in the standard Metaplex shape.
@@ -162,12 +204,26 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         upsert: true,
       });
     if (jsonErr) {
-      console.error("[metadata] manifest upload failed", jsonErr);
+      console.error("[metadata] manifest upload failed", {
+        mint: prefix,
+        path: manifestPath,
+        bytes: manifestBytes.byteLength,
+        err: jsonErr,
+      });
       throw new Error("Failed to upload token metadata manifest");
     }
 
+    const uri = publicUrlFor(manifestPath);
+    console.info("[metadata] upload ok", {
+      mint: prefix,
+      uri,
+      image_url: imageUrl,
+      manifestBytes: manifestBytes.byteLength,
+      elapsedMs: Date.now() - t0,
+    });
+
     return {
-      uri: publicUrlFor(manifestPath),
+      uri,
       image_url: imageUrl,
     };
   });

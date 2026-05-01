@@ -97,11 +97,10 @@ function getRpc(cluster: "devnet" | "mainnet"): string {
 // fee model — never trust the client's claimed total_fee_sol blindly.
 //
 // IMPORTANT: PAID_ADDON_KEYS must stay in lock-step with `ADDON_KEYS` in
-// src/lib/pricing.ts. `customAddress` is intentionally excluded — vanity
-// mint-address grinding isn't implemented yet (marked "Coming Soon" in the
-// UI), so we do not charge for it even if the flag is true on the order.
+// src/lib/pricing.ts.
 const PAID_ADDON_KEYS = [
   "modifyCreator",
+  "customAddress",
   "revokeFreeze",
   "revokeMint",
   "revokeUpdate",

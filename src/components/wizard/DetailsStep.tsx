@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
@@ -12,6 +12,12 @@ import {
   generateMintKeypair,
 } from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
+import {
+  grindVanityMintKeypair,
+  validateVanitySuffix,
+  MAX_SUFFIX_LENGTH,
+  type VanityHandle,
+} from "@/lib/solana/vanity";
 import { Keypair } from "@solana/web3.js";
 
 /** Read a File as raw base64 (without `data:` prefix) for server upload. */
@@ -36,6 +42,9 @@ export function DetailsStep() {
   const [mintAddress, setMintAddress] = useState<string | undefined>();
   const [paymentSig, setPaymentSig] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
+  const vanityHandleRef = useRef<VanityHandle | null>(null);
+  const [suffixError, setSuffixError] = useState<string | undefined>();
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
     paymentSignature: string;
@@ -85,15 +94,16 @@ export function DetailsStep() {
   }
 
   /**
-   * Generates the mint keypair and uploads the off-chain JSON metadata.
-   * Must run BEFORE the on-chain mint tx because the Token-2022 TokenMetadata
-   * extension needs the final HTTPS `uri` at initialization time.
+   * Uploads the off-chain JSON metadata for a (possibly vanity-generated)
+   * mint keypair. Must run BEFORE the on-chain mint tx because the
+   * Token-2022 TokenMetadata extension needs the final HTTPS `uri` at
+   * initialization time. The keypair is supplied by the caller so that the
+   * vanity grinder can run first when Custom Token Address is enabled.
    */
-  async function prepareMetadata(): Promise<{
+  async function prepareMetadata(mintKeypair: Keypair): Promise<{
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
   }> {
-    const mintKeypair = generateMintKeypair();
     const mintAddr = mintKeypair.publicKey.toBase58();
 
     let imageBase64: string | undefined;
@@ -202,7 +212,42 @@ export function DetailsStep() {
       revokeUpdate: state.revokeUpdate,
     };
 
+    // Validate the vanity suffix early — never let raw user text reach
+    // PublicKey/Keypair logic. The grinder also re-validates internally.
+    if (state.customAddress) {
+      const v = validateVanitySuffix(state.customAddressSuffix);
+      if (!v.ok) {
+        setErrorMessage(`Custom Token Address: ${v.reason}`);
+        setStage("error");
+        return;
+      }
+    }
+
     const isDevnetFreeMode = state.cluster === "devnet";
+
+    /**
+     * Produce the mint keypair for this run. If Custom Token Address is
+     * enabled, run the Web Worker grinder until we find a keypair whose
+     * base58 public key ends with the user's validated suffix. Otherwise
+     * fall back to a one-shot random keypair.
+     */
+    const generateMintKeypairForRun = async (): Promise<Keypair> => {
+      if (!state.customAddress) return generateMintKeypair();
+      setVanityProgress({ attempts: 0, elapsedMs: 0 });
+      const handle = grindVanityMintKeypair({
+        suffix: state.customAddressSuffix.trim(),
+        caseSensitive: true,
+        onProgress: (p) => setVanityProgress(p),
+      });
+      vanityHandleRef.current = handle;
+      try {
+        const kp = await handle.promise;
+        return kp;
+      } finally {
+        vanityHandleRef.current = null;
+        setVanityProgress(null);
+      }
+    };
 
     try {
       // 0. Preflight — ensure wallet has enough SOL for fee + network costs
@@ -227,9 +272,11 @@ export function DetailsStep() {
       // DEVNET FREE TEST MODE: skip order creation, payment, and verification.
       // Mint directly so devs can test the full minting path without paying.
       if (isDevnetFreeMode) {
-        // Upload off-chain JSON metadata first so the on-chain `uri` is real.
+        // Generate (or grind) the mint keypair, then upload off-chain JSON
+        // metadata so the on-chain `uri` is real.
         setStage("preparing");
-        const prepared = await prepareMetadata();
+        const mintKeypair = await generateMintKeypairForRun();
+        const prepared = await prepareMetadata(mintKeypair);
         const devMintAttempt = {
           orderId: "devnet-test",
           paymentSignature: "devnet-test",
@@ -254,10 +301,14 @@ export function DetailsStep() {
         return;
       }
 
-      // 1. Preparing — create order on the backend AND upload off-chain metadata.
-      //    The metadata URI must exist before the on-chain mint tx is built so the
-      //    Token-2022 TokenMetadata extension can reference it at initialization.
+      // 1. Preparing — grind the (possibly vanity) mint keypair, create the
+      //    order on the backend, and upload off-chain metadata. The metadata
+      //    URI must exist before the on-chain mint tx is built so the
+      //    Token-2022 TokenMetadata extension can reference it at init.
+      //    Vanity grinding runs sequentially (not parallel with createOrder)
+      //    so a grinder failure aborts before any order is created.
       setStage("preparing");
+      const mintKeypair = await generateMintKeypairForRun();
       const [order, prepared] = await Promise.all([
         createOrder({
           data: {
@@ -273,7 +324,7 @@ export function DetailsStep() {
             total_fee_sol: computeTotalFee(selected),
           },
         }),
-        prepareMetadata(),
+        prepareMetadata(mintKeypair),
       ]);
 
       // 2. Confirming — wallet signs payment
@@ -366,20 +417,56 @@ export function DetailsStep() {
           onChange={(v) => set("modifyCreator", v)}
         />
         {/*
-          Custom Token Address — Coming Soon.
-          Vanity-suffix mint-address grinding (brute-forcing a Keypair whose
-          public key ends with the requested base58 suffix) is not implemented
-          in this project. A 4-char suffix averages ~11M keypair generations,
-          which would block the browser main thread for many minutes without a
-          dedicated Web Worker grinder + progress UI + cancellation.
-          Until that infrastructure exists, this option is disabled and free
-          (see src/lib/pricing.ts ADDON_KEYS). Do not pass `customAddressSuffix`
-          into a PublicKey constructor anywhere.
+          Custom Token Address — real Web Worker vanity grinder.
+          - Suffix is validated client-side (base58 alphabet only, ≤ MAX_SUFFIX_LENGTH).
+          - Grinding runs off the main thread (src/lib/solana/vanityWorker.ts).
+          - The resulting Keypair IS the actual mint used in the on-chain tx.
+          - Suffix text is NEVER passed to PublicKey/Keypair constructors —
+            only ASCII-validated through validateVanitySuffix().
         */}
-        <ComingSoonRow
+        <AdvancedRow
           title="Custom Token Address"
-          desc="Generate a token with a custom address suffix (vanity address). Coming soon."
-        />
+          desc="Generate a mint address ending in your chosen suffix. Longer or harder suffixes take more time to find."
+          checked={state.customAddress}
+          onChange={(v) => {
+            set("customAddress", v);
+            if (!v) setSuffixError(undefined);
+          }}
+        >
+          {state.customAddress && (
+            <div className="mt-3 space-y-2">
+              <input
+                value={state.customAddressSuffix}
+                onChange={(e) => {
+                  // Strip whitespace and clamp length BEFORE storing — never
+                  // hold raw user text longer than the supported suffix.
+                  const raw = e.target.value.replace(/\s+/g, "").slice(0, MAX_SUFFIX_LENGTH);
+                  set("customAddressSuffix", raw);
+                  if (!raw) {
+                    setSuffixError(undefined);
+                    return;
+                  }
+                  const v = validateVanitySuffix(raw);
+                  setSuffixError(v.ok ? undefined : v.reason);
+                }}
+                placeholder="MEME"
+                maxLength={MAX_SUFFIX_LENGTH}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="input-dark"
+              />
+              <p className="text-xs text-muted-foreground">
+                Up to {MAX_SUFFIX_LENGTH} base58 characters (no 0, O, I, l).
+                1–2 chars are near-instant; 3 chars usually under a minute;
+                4 chars can take several minutes. Search runs in your browser.
+              </p>
+              {suffixError && (
+                <p className="text-xs text-destructive">{suffixError}</p>
+              )}
+            </div>
+          )}
+        </AdvancedRow>
 
       </div>
 
@@ -490,6 +577,11 @@ export function DetailsStep() {
         tokenSymbol={state.tokenSymbol}
         totalSol={totalPrice}
         cluster={state.cluster}
+        vanityProgress={vanityProgress ?? undefined}
+        vanitySuffix={state.customAddress ? state.customAddressSuffix : undefined}
+        onCancelVanity={() => {
+          vanityHandleRef.current?.cancel();
+        }}
         onClose={() => setStage(null)}
         onRetry={handleCreate}
       />
@@ -576,25 +668,6 @@ function AdvancedRow({
         <Toggle checked={checked} onChange={onChange} />
       </div>
       {children}
-    </div>
-  );
-}
-
-function ComingSoonRow({ title, desc }: { title: string; desc: string }) {
-  return (
-    <div className="card-premium rounded-2xl p-4 sm:p-5 opacity-70">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-medium">{title}</h4>
-            <span className="text-[11px] rounded-full bg-muted text-muted-foreground border border-border px-2 py-0.5">
-              Coming Soon
-            </span>
-          </div>
-          <p className="mt-1.5 text-sm text-muted-foreground">{desc}</p>
-        </div>
-        <Toggle checked={false} onChange={() => {}} />
-      </div>
     </div>
   );
 }

@@ -185,12 +185,28 @@ export const verifyPayment = createServerFn({ method: "POST" })
       .single();
 
     if (loadErr || !order) throw new Error("Order not found");
-    if (order.status === "paid" || order.status === "minted") {
-      throw new Error("Order already paid");
-    }
     if (order.cluster !== data.cluster) throw new Error("Cluster mismatch");
     if (order.wallet_address !== data.wallet_address) {
       throw new Error("Wallet mismatch");
+    }
+
+    // Idempotent re-verify: if this exact signature was already accepted,
+    // do NOT charge again and do NOT re-hit the RPC. Return ok so the caller
+    // can proceed straight to mint retry. This is the key guard that lets the
+    // "payment ok but mint failed" retry flow finish without double charging.
+    if (
+      (order.status === "paid" || order.status === "minted") &&
+      order.payment_signature === data.payment_signature
+    ) {
+      console.info("[orders] verifyPayment: idempotent re-verify", {
+        order_id: order.id,
+        status: order.status,
+      });
+      return { ok: true, order_id: order.id, already_verified: true as const };
+    }
+    if (order.status === "paid" || order.status === "minted") {
+      // Different signature was already accepted for this order — refuse.
+      throw new Error("Order already paid with a different signature");
     }
 
     const recipient = getPlatformWallet(data.cluster);
@@ -239,23 +255,52 @@ export const verifyPayment = createServerFn({ method: "POST" })
     const expectedLamports = Math.round(Number(order.total_fee_sol) * LAMPORTS_PER_SOL);
 
     if (recipientDeltaLamports < expectedLamports) {
+      console.warn("[orders] verifyPayment underpayment", {
+        order_id: order.id,
+        expectedLamports,
+        recipientDeltaLamports,
+        signature: data.payment_signature,
+      });
       throw new Error(
         `Underpayment: expected ${expectedLamports} lamports, got ${recipientDeltaLamports}`,
       );
     }
 
-    const { error: updErr } = await supabaseAdmin
+    // Conditional update guards against a concurrent verifier flipping the row
+    // (status must still be 'pending'). If 0 rows are updated we re-read and
+    // accept idempotently when the signature matches.
+    const { data: updRows, error: updErr } = await supabaseAdmin
       .from("orders")
       .update({ status: "paid", payment_signature: data.payment_signature })
       .eq("id", order.id)
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .select("id");
 
     if (updErr) {
-      console.error("verifyPayment update failed:", updErr);
+      console.error("[orders] verifyPayment update failed:", updErr);
       throw new Error("Failed to mark order paid");
     }
+    if (!updRows || updRows.length === 0) {
+      const { data: fresh } = await supabaseAdmin
+        .from("orders")
+        .select("status, payment_signature")
+        .eq("id", order.id)
+        .single();
+      if (
+        fresh &&
+        (fresh.status === "paid" || fresh.status === "minted") &&
+        fresh.payment_signature === data.payment_signature
+      ) {
+        return { ok: true, order_id: order.id, already_verified: true as const };
+      }
+      throw new Error("Failed to mark order paid (concurrent state change)");
+    }
 
-    return { ok: true, order_id: order.id };
+    console.info("[orders] verifyPayment ok", {
+      order_id: order.id,
+      lamports: recipientDeltaLamports,
+    });
+    return { ok: true, order_id: order.id, already_verified: false as const };
   });
 
 export const saveTokenResult = createServerFn({ method: "POST" })

@@ -13,9 +13,13 @@ export type SelectedOptions = {
   revokeUpdate: boolean;
 };
 
+// Paid add-ons. NOTE: `customAddress` is intentionally NOT in this list.
+// Vanity-suffix mint-address grinding is not implemented in this project
+// (it would need a Web Worker keypair-grinder we don't have), so we do
+// not charge for it. The flag still exists on SelectedOptions so the
+// user's intent is recorded on the order, but it contributes 0 SOL.
 export const ADDON_KEYS: (keyof SelectedOptions)[] = [
   "modifyCreator",
-  "customAddress",
   "revokeFreeze",
   "revokeMint",
   "revokeUpdate",

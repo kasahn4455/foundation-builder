@@ -365,22 +365,22 @@ export function DetailsStep() {
           checked={state.modifyCreator}
           onChange={(v) => set("modifyCreator", v)}
         />
-        <AdvancedRow
+        {/*
+          Custom Token Address — Coming Soon.
+          Vanity-suffix mint-address grinding (brute-forcing a Keypair whose
+          public key ends with the requested base58 suffix) is not implemented
+          in this project. A 4-char suffix averages ~11M keypair generations,
+          which would block the browser main thread for many minutes without a
+          dedicated Web Worker grinder + progress UI + cancellation.
+          Until that infrastructure exists, this option is disabled and free
+          (see src/lib/pricing.ts ADDON_KEYS). Do not pass `customAddressSuffix`
+          into a PublicKey constructor anywhere.
+        */}
+        <ComingSoonRow
           title="Custom Token Address"
-          desc="Generate a token with a custom address suffix (up to 4 characters)."
-          checked={state.customAddress}
-          onChange={(v) => set("customAddress", v)}
-        >
-          {state.customAddress && (
-            <input
-              value={state.customAddressSuffix}
-              onChange={(e) => set("customAddressSuffix", e.target.value.slice(0, 4))}
-              placeholder="MEME"
-              maxLength={4}
-              className="input-dark mt-3"
-            />
-          )}
-        </AdvancedRow>
+          desc="Generate a token with a custom address suffix (vanity address). Coming soon."
+        />
+
       </div>
 
       {/* Revoke authorities */}
@@ -576,6 +576,25 @@ function AdvancedRow({
         <Toggle checked={checked} onChange={onChange} />
       </div>
       {children}
+    </div>
+  );
+}
+
+function ComingSoonRow({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div className="card-premium rounded-2xl p-4 sm:p-5 opacity-70">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="font-medium">{title}</h4>
+            <span className="text-[11px] rounded-full bg-muted text-muted-foreground border border-border px-2 py-0.5">
+              Coming Soon
+            </span>
+          </div>
+          <p className="mt-1.5 text-sm text-muted-foreground">{desc}</p>
+        </div>
+        <Toggle checked={false} onChange={() => {}} />
+      </div>
     </div>
   );
 }

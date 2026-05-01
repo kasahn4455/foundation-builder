@@ -147,11 +147,14 @@ export type MintTokenResult = {
   ataAddress: string;
   signature: string;
   /**
-   * Resolved metadata update authority after mint confirmation. Read directly
-   * from the on-chain TokenMetadata extension via `getTokenMetadata`.
-   *  - `null`  → authority was permanently revoked (revokeUpdate=true)
-   *  - string  → base58 address that controls future metadata updates
+   * Resolved on-chain authorities AFTER the mint tx is confirmed. These are
+   * read directly from chain state via `getMint` and `getTokenMetadata`, NOT
+   * inferred from the user's selections — so they reflect actual reality.
+   *   - `null`  → authority was permanently revoked
+   *   - string  → base58 address that still controls this authority
    */
+  mintAuthority: string | null;
+  freezeAuthority: string | null;
   metadataUpdateAuthority: string | null;
 };
 

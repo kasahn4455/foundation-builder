@@ -74,12 +74,15 @@ export async function sendPayment({
     console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
     if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
       throw new Error(
-        "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
-          "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC (Helius, QuickNode, Triton, Alchemy) and reload.",
+        "Solana mainnet RPC is unreachable from your browser (the public endpoint blocked the request). " +
+          "No payment was attempted. Please reload and try again, or contact support if this keeps happening.",
       );
     }
+    const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
+      cluster === "mainnet"
+        ? `Could not reach Solana mainnet to start the payment. No SOL was charged. Please check your connection and try again. (${reason})`
+        : `Failed to reach Solana devnet RPC: ${reason}`,
     );
   }
 

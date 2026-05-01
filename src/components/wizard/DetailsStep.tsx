@@ -428,7 +428,6 @@ export function DetailsStep() {
     // On mobile we additionally clamp to MAX_SUFFIX_LENGTH_MOBILE so weak
     // devices can't be locked into a 4-char grind that will almost
     // certainly time out.
-    const onMobile = isLikelyMobile();
     const effectiveMaxSuffix = onMobile ? MAX_SUFFIX_LENGTH_MOBILE : MAX_SUFFIX_LENGTH;
     if (state.customAddress) {
       const v = validateVanitySuffix(state.customAddressSuffix);

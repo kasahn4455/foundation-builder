@@ -196,23 +196,49 @@ export async function mintToken({
   );
 
   // ---------------------------------------------------------------------------
-  // Update-authority decision (single source of truth).
+  // Authority decisions (single source of truth for ALL three authorities).
   //
-  // The metadata update authority is set ONCE here, explicitly, and then
-  // (optionally) revoked in the same atomic transaction. There is no other
-  // place in the codebase that decides this — the wizard's `revokeUpdate`
-  // flag flows directly into the on-chain instructions below.
+  // Each authority is initialized to the connected wallet, then optionally
+  // revoked (set to null) in the SAME atomic transaction. Either both
+  // assignment and revocation succeed, or the whole mint fails — there is
+  // no window where the on-chain state diverges from the user's selection.
   //
-  //   revokeUpdate=false → updateAuthority stays as the connected wallet
-  //   revokeUpdate=true  → updateAuthority is set to null after init
+  //   revokeMint   = true  → MintTokens authority   → null  after init
+  //                  false → MintTokens authority   → wallet (user can mint more)
+  //   revokeFreeze = true  → FreezeAccount authority → null
+  //                  false → FreezeAccount authority → wallet (user can freeze)
+  //   revokeUpdate = true  → Metadata updateAuthority → null
+  //                  false → Metadata updateAuthority → wallet (user can edit)
+  //
+  // The revoke instructions are appended below in this exact order:
+  //   freeze → update → mint
+  // (Mint last because we need MintTokens authority to mint the initial supply.)
   // ---------------------------------------------------------------------------
+  const initialMintAuthority: PublicKey = payer;
+  const initialFreezeAuthority: PublicKey = payer;
   const initialUpdateAuthority: PublicKey = payer;
+
+  const finalMintAuthority: PublicKey | null = revokeMint ? null : payer;
+  const finalFreezeAuthority: PublicKey | null = revokeFreeze ? null : payer;
   const finalUpdateAuthority: PublicKey | null = revokeUpdate ? null : payer;
-  console.info("[mint] metadata update-authority plan", {
+
+  console.info("[mint] authority plan", {
     mint: mintPk.toBase58(),
-    initial: initialUpdateAuthority.toBase58(),
-    final: finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null,
-    revokeUpdate,
+    mintAuthority: {
+      initial: initialMintAuthority.toBase58(),
+      final: finalMintAuthority ? finalMintAuthority.toBase58() : null,
+      revoke: revokeMint,
+    },
+    freezeAuthority: {
+      initial: initialFreezeAuthority.toBase58(),
+      final: finalFreezeAuthority ? finalFreezeAuthority.toBase58() : null,
+      revoke: revokeFreeze,
+    },
+    updateAuthority: {
+      initial: initialUpdateAuthority.toBase58(),
+      final: finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null,
+      revoke: revokeUpdate,
+    },
   });
 
   // Build the on-chain TokenMetadata struct so we can size the mint account

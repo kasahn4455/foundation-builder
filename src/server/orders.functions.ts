@@ -128,10 +128,10 @@ export const createOrder = createServerFn({ method: "POST" })
   .inputValidator((input) => CreateOrderInput.parse(input))
   .handler(async ({ data }) => {
     // Authoritative recompute. Reject if client claims wrong total.
-    if (data.base_fee_sol !== 0.3) {
+    if (data.base_fee_sol !== BASE_FEE_SOL) {
       throw new Error("Invalid base_fee_sol");
     }
-    const { addon, total } = recomputeTotal(0.3, data.selected_options);
+    const { addon, total } = recomputeTotal(BASE_FEE_SOL, data.selected_options);
     if (round9(data.addon_fee_sol) !== addon || round9(data.total_fee_sol) !== total) {
       throw new Error("Pricing mismatch");
     }
@@ -148,7 +148,7 @@ export const createOrder = createServerFn({ method: "POST" })
       // PostgREST accepts a string for NUMERIC columns; types are nominally number.
       initial_supply: data.initial_supply as unknown as number,
       cluster: data.cluster,
-      base_fee_sol: 0.3,
+      base_fee_sol: BASE_FEE_SOL,
       addon_fee_sol: addon,
       selected_options: data.selected_options,
       total_fee_sol: total,
@@ -169,7 +169,7 @@ export const createOrder = createServerFn({ method: "POST" })
       order_id: order.id,
       recipient_wallet: recipient,
       amount_sol: total,
-      base_fee_sol: 0.3,
+      base_fee_sol: BASE_FEE_SOL,
       addon_fee_sol: addon,
       selected_options: data.selected_options,
       total_fee_sol: total,

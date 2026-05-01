@@ -485,34 +485,65 @@ export async function mintToken({
     );
 
     // -------------------------------------------------------------------------
-    // Post-confirmation verification: read the on-chain TokenMetadata extension
-    // back from the mint and assert the authority matches what we intended.
-    // This is what makes the "revoke update" claim real — we don't trust the
-    // instruction list, we read state from the chain.
+    // Post-confirmation verification (REAL check, not optimistic).
+    //
+    // Read all three authorities back from chain state and assert each one
+    // matches what we intended. If any of them doesn't, we throw — the
+    // caller treats this as a failed mint even though the tx confirmed,
+    // because the user's selection wasn't honored.
+    //   - mint   + freeze authorities  → from `getMint` (base mint state)
+    //   - update authority             → from `getTokenMetadata` (extension)
     // -------------------------------------------------------------------------
-    failurePoint = "verifyMetadataAuthority";
-    let onChainAuthority: string | null = null;
+    failurePoint = "verifyAuthorities";
+    let onChainMintAuthority: string | null = null;
+    let onChainFreezeAuthority: string | null = null;
+    let onChainUpdateAuthority: string | null = null;
     try {
-      const onChain = await getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID);
-      if (!onChain) {
+      const [mintInfo, metadataInfo] = await Promise.all([
+        getMint(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
+        getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
+      ]);
+      if (!metadataInfo) {
         throw new Error("TokenMetadata extension missing from mint after confirmation");
       }
-      onChainAuthority = onChain.updateAuthority ? onChain.updateAuthority.toBase58() : null;
-      const expected = finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null;
-      console.info("[mint] metadata update-authority verified", {
+
+      onChainMintAuthority = mintInfo.mintAuthority ? mintInfo.mintAuthority.toBase58() : null;
+      onChainFreezeAuthority = mintInfo.freezeAuthority ? mintInfo.freezeAuthority.toBase58() : null;
+      onChainUpdateAuthority = metadataInfo.updateAuthority
+        ? metadataInfo.updateAuthority.toBase58()
+        : null;
+
+      const expectedMint = finalMintAuthority ? finalMintAuthority.toBase58() : null;
+      const expectedFreeze = finalFreezeAuthority ? finalFreezeAuthority.toBase58() : null;
+      const expectedUpdate = finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null;
+
+      console.info("[mint] authorities verified", {
         mint: mintPk.toBase58(),
-        expected,
-        onChain: onChainAuthority,
-        revokeUpdate,
+        mintAuthority: { expected: expectedMint, onChain: onChainMintAuthority, revoke: revokeMint },
+        freezeAuthority: { expected: expectedFreeze, onChain: onChainFreezeAuthority, revoke: revokeFreeze },
+        updateAuthority: { expected: expectedUpdate, onChain: onChainUpdateAuthority, revoke: revokeUpdate },
       });
-      if (onChainAuthority !== expected) {
+
+      if (onChainMintAuthority !== expectedMint) {
         throw new Error(
-          `Metadata update authority mismatch after mint. Expected ${expected ?? "null (revoked)"}, on-chain ${onChainAuthority ?? "null"}.`,
+          `Mint authority mismatch. Expected ${expectedMint ?? "null (revoked)"}, on-chain ${onChainMintAuthority ?? "null"}.`,
+        );
+      }
+      if (onChainFreezeAuthority !== expectedFreeze) {
+        throw new Error(
+          `Freeze authority mismatch. Expected ${expectedFreeze ?? "null (revoked)"}, on-chain ${onChainFreezeAuthority ?? "null"}.`,
+        );
+      }
+      if (onChainUpdateAuthority !== expectedUpdate) {
+        throw new Error(
+          `Metadata update authority mismatch. Expected ${expectedUpdate ?? "null (revoked)"}, on-chain ${onChainUpdateAuthority ?? "null"}.`,
         );
       }
     } catch (verifyErr) {
-      console.error("[mint] metadata authority verification failed", {
+      console.error("[mint] authority verification failed", {
         mint: mintPk.toBase58(),
+        revokeMint,
+        revokeFreeze,
         revokeUpdate,
         err: verifyErr,
       });
@@ -523,7 +554,9 @@ export async function mintToken({
       mintAddress: mintPk.toBase58(),
       ataAddress: ata.toBase58(),
       signature,
-      metadataUpdateAuthority: onChainAuthority,
+      mintAuthority: onChainMintAuthority,
+      freezeAuthority: onChainFreezeAuthority,
+      metadataUpdateAuthority: onChainUpdateAuthority,
     };
   } catch (err) {
     console.error("[mint] mintToken failed", { cluster, failurePoint, err });

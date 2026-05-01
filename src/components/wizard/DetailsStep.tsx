@@ -384,9 +384,10 @@ export function DetailsStep() {
     };
   }
 
-  async function runCreation() {
+  async function runCreation(runId: number) {
     setErrorMessage(undefined);
     setMintAddress(undefined);
+    setFinalResult(null);
 
     if (!wallet || !provider) {
       openPicker();
@@ -448,7 +449,7 @@ export function DetailsStep() {
         // idempotent for the same (order_id, signature) pair — it will NOT
         // re-charge the user.
         if (pendingMint.needsVerify && !isDevnetTestRetry) {
-          setStage("processing");
+          setFlowStage(runId, "processing", "retry-payment-verify");
           await verifyPayment({
             data: {
               order_id: pendingMint.orderId,
@@ -469,7 +470,7 @@ export function DetailsStep() {
         //      (mintToken always fetches a fresh blockhash internally)
         // Payment state (orderId, paymentSignature) is preserved untouched —
         // user is NOT recharged.
-        setStage("preparing");
+        setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
         const freshKeypair = await generateMintKeypairForRun();
         const freshMint = freshKeypair.publicKey.toBase58();
         console.info("[wizard] retry: generated fresh mint keypair", {
@@ -493,7 +494,7 @@ export function DetailsStep() {
           orderId: refreshed.orderId,
           mint: freshMint,
         });
-        await completeMint(refreshed);
+        await completeMint(runId, refreshed);
         console.info("[wizard] retry mint succeeded", {
           orderId: refreshed.orderId,
           paymentSignature: refreshed.paymentSignature,
@@ -512,7 +513,7 @@ export function DetailsStep() {
           err: mintErr,
         });
         setErrorMessage(msg);
-        setStage("error");
+        setFlowStage(runId, "error", "retry-mint-failed");
       }
       return;
     }
@@ -523,12 +524,12 @@ export function DetailsStep() {
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
     if (!state.tokenName.trim() || !state.tokenSymbol.trim()) {
       setErrorMessage("Token name and symbol are required.");
-      setStage("error");
+      setFlowStage(runId, "error", "validation-name-symbol");
       return;
     }
     if (!supplyDigits || BigInt(supplyDigits) <= 0n) {
       setErrorMessage("Total supply must be greater than zero.");
-      setStage("error");
+      setFlowStage(runId, "error", "validation-supply");
       return;
     }
 
@@ -550,14 +551,14 @@ export function DetailsStep() {
       const v = validateVanitySuffix(state.customAddressSuffix);
       if (!v.ok) {
         setErrorMessage(`Custom Token Address: ${v.reason}`);
-        setStage("error");
+        setFlowStage(runId, "error", "validation-vanity-suffix");
         return;
       }
       if (v.suffix.length > effectiveMaxSuffix) {
         setErrorMessage(
           `Custom Token Address: on mobile please use ${effectiveMaxSuffix} characters or fewer (longer suffixes can take too long on phones).`,
         );
-        setStage("error");
+        setFlowStage(runId, "error", "validation-vanity-mobile-length");
         return;
       }
     }

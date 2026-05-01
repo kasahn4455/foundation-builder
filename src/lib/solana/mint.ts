@@ -18,6 +18,7 @@ import {
   createMintToInstruction,
   createSetAuthorityInstruction,
   AuthorityType,
+  getTokenMetadata,
 } from "@solana/spl-token";
 import {
   createInitializeInstruction as createInitializeTokenMetadataInstruction,

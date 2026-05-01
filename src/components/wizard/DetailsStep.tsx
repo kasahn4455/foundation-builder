@@ -682,7 +682,24 @@ export function DetailsStep() {
   }
 
   function handleCreate() {
-    void runCreation();
+    // Synchronous re-entry guard — see isRunningRef declaration above.
+    // Flips in the same tick as the click so a fast double-click (or any
+    // duplicate handler invocation) cannot start a second runCreation()
+    // before the first one calls setStage(...) and disables the button.
+    if (isRunningRef.current) {
+      console.warn("[wizard] CREATE_TOKEN_DUPLICATE_CLICK_BLOCKED — already running");
+      return;
+    }
+    isRunningRef.current = true;
+    console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
+      cluster: state.cluster,
+      hasPendingMint: Boolean(pendingMint),
+      pendingNeedsVerify: pendingMint?.needsVerify ?? false,
+    });
+    void runCreation().finally(() => {
+      isRunningRef.current = false;
+      console.info("[wizard] CREATE_TOKEN_HANDLER_END");
+    });
   }
 
   return (

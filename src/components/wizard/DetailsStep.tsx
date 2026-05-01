@@ -243,16 +243,31 @@ export function DetailsStep() {
     // step (completeMint), never createOrder/sendPayment/verifyPayment, so
     // the user is never charged twice for the same token.
     if (pendingMint) {
-      console.info("[wizard] retrying mint with preserved order", {
+      console.info("[wizard] retry: payment preserved, rebuilding mint tx only", {
         orderId: pendingMint.orderId,
         paymentSignature: pendingMint.paymentSignature,
         mint: pendingMint.mintKeypair.publicKey.toBase58(),
+        cluster: pendingMint.cluster,
+        path: "retry-mint-only-no-recharge",
       });
+      // Surface the preserved payment signature in the modal immediately so
+      // the user sees it the moment retry starts (and during any subsequent
+      // failure), not only after the next failure renders.
+      setPaymentSig(pendingMint.paymentSignature);
       try {
         await completeMint(pendingMint);
+        console.info("[wizard] retry mint succeeded", {
+          orderId: pendingMint.orderId,
+          paymentSignature: pendingMint.paymentSignature,
+        });
       } catch (mintErr) {
         const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
-        setErrorMessage(`Mint retry failed: ${msg}. Your payment is preserved — try again.`);
+        console.error("[wizard] retry mint failed (payment still preserved)", {
+          orderId: pendingMint.orderId,
+          paymentSignature: pendingMint.paymentSignature,
+          err: mintErr,
+        });
+        setErrorMessage(msg);
         setStage("error");
       }
       return;

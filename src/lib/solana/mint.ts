@@ -509,6 +509,15 @@ export async function mintToken({
     tx.partialSign(mintKeypair);
 
     let signature: string;
+    // Same single-popup counter pattern as the payment step. A duplicate
+    // mint approval would surface in the live console as
+    // `[mint] MINT_WALLET_POPUP n=2`.
+    const mintPopupN =
+      typeof window !== "undefined"
+        ? ((window as unknown as { __mint_popup_n?: number }).__mint_popup_n =
+            ((window as unknown as { __mint_popup_n?: number }).__mint_popup_n ?? 0) + 1)
+        : 1;
+    console.info("[mint] MINT_WALLET_POPUP", { n: mintPopupN, mint: mintPk.toBase58(), cluster });
     if (provider.signTransaction) {
       failurePoint = "signTransaction";
       const signed = await provider.signTransaction(tx);
@@ -525,6 +534,7 @@ export async function mintToken({
     } else {
       throw new Error("Connected wallet does not support Solana transaction signing.");
     }
+    console.info("[mint] MINT_WALLET_RETURNED", { n: mintPopupN, signature });
 
     failurePoint = "confirmTransaction";
     await connection.confirmTransaction(

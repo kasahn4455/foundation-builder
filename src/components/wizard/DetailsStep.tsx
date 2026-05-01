@@ -529,7 +529,7 @@ export function DetailsStep() {
       <div className="space-y-3 pt-2">
         <AdvancedRow
           title="Modify Creator Information"
-          desc="Change the information of the creator in the metadata. By default, it is MemeMinting."
+          desc="Attribute your connected wallet as the creator in the off-chain metadata. By default, the creator is shown as MemeMinting. (On-chain authority is unchanged — see Revoke Update below.)"
           checked={state.modifyCreator}
           onChange={(v) => set("modifyCreator", v)}
         />

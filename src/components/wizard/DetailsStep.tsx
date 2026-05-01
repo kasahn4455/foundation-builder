@@ -212,7 +212,42 @@ export function DetailsStep() {
       revokeUpdate: state.revokeUpdate,
     };
 
+    // Validate the vanity suffix early — never let raw user text reach
+    // PublicKey/Keypair logic. The grinder also re-validates internally.
+    if (state.customAddress) {
+      const v = validateVanitySuffix(state.customAddressSuffix);
+      if (!v.ok) {
+        setErrorMessage(`Custom Token Address: ${v.reason}`);
+        setStage("error");
+        return;
+      }
+    }
+
     const isDevnetFreeMode = state.cluster === "devnet";
+
+    /**
+     * Produce the mint keypair for this run. If Custom Token Address is
+     * enabled, run the Web Worker grinder until we find a keypair whose
+     * base58 public key ends with the user's validated suffix. Otherwise
+     * fall back to a one-shot random keypair.
+     */
+    const generateMintKeypairForRun = async (): Promise<Keypair> => {
+      if (!state.customAddress) return generateMintKeypair();
+      setVanityProgress({ attempts: 0, elapsedMs: 0 });
+      const handle = grindVanityMintKeypair({
+        suffix: state.customAddressSuffix.trim(),
+        caseSensitive: true,
+        onProgress: (p) => setVanityProgress(p),
+      });
+      vanityHandleRef.current = handle;
+      try {
+        const kp = await handle.promise;
+        return kp;
+      } finally {
+        vanityHandleRef.current = null;
+        setVanityProgress(null);
+      }
+    };
 
     try {
       // 0. Preflight — ensure wallet has enough SOL for fee + network costs
@@ -237,9 +272,11 @@ export function DetailsStep() {
       // DEVNET FREE TEST MODE: skip order creation, payment, and verification.
       // Mint directly so devs can test the full minting path without paying.
       if (isDevnetFreeMode) {
-        // Upload off-chain JSON metadata first so the on-chain `uri` is real.
+        // Generate (or grind) the mint keypair, then upload off-chain JSON
+        // metadata so the on-chain `uri` is real.
         setStage("preparing");
-        const prepared = await prepareMetadata();
+        const mintKeypair = await generateMintKeypairForRun();
+        const prepared = await prepareMetadata(mintKeypair);
         const devMintAttempt = {
           orderId: "devnet-test",
           paymentSignature: "devnet-test",
@@ -264,10 +301,14 @@ export function DetailsStep() {
         return;
       }
 
-      // 1. Preparing — create order on the backend AND upload off-chain metadata.
-      //    The metadata URI must exist before the on-chain mint tx is built so the
-      //    Token-2022 TokenMetadata extension can reference it at initialization.
+      // 1. Preparing — grind the (possibly vanity) mint keypair, create the
+      //    order on the backend, and upload off-chain metadata. The metadata
+      //    URI must exist before the on-chain mint tx is built so the
+      //    Token-2022 TokenMetadata extension can reference it at init.
+      //    Vanity grinding runs sequentially (not parallel with createOrder)
+      //    so a grinder failure aborts before any order is created.
       setStage("preparing");
+      const mintKeypair = await generateMintKeypairForRun();
       const [order, prepared] = await Promise.all([
         createOrder({
           data: {
@@ -283,7 +324,7 @@ export function DetailsStep() {
             total_fee_sol: computeTotalFee(selected),
           },
         }),
-        prepareMetadata(),
+        prepareMetadata(mintKeypair),
       ]);
 
       // 2. Confirming — wallet signs payment

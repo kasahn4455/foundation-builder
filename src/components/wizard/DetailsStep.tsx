@@ -178,12 +178,21 @@ export function DetailsStep() {
       return;
     }
 
+    // RETRY GUARD — if a previous attempt already paid + verified but the mint
+    // tx failed, `pendingMint` is preserved. Retrying re-runs ONLY the mint
+    // step (completeMint), never createOrder/sendPayment/verifyPayment, so
+    // the user is never charged twice for the same token.
     if (pendingMint) {
+      console.info("[wizard] retrying mint with preserved order", {
+        orderId: pendingMint.orderId,
+        paymentSignature: pendingMint.paymentSignature,
+        mint: pendingMint.mintKeypair.publicKey.toBase58(),
+      });
       try {
         await completeMint(pendingMint);
       } catch (mintErr) {
         const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
-        setErrorMessage(msg);
+        setErrorMessage(`Mint retry failed: ${msg}. Your payment is preserved — try again.`);
         setStage("error");
       }
       return;

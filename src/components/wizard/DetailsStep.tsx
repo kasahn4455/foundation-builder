@@ -425,36 +425,8 @@ export function DetailsStep() {
 
     const isDevnetFreeMode = state.cluster === "devnet";
 
-    /**
-     * Produce the mint keypair for this run. If Custom Token Address is
-     * enabled, run the Web Worker grinder until we find a keypair whose
-     * base58 public key ends with the user's validated suffix. Otherwise
-     * fall back to a one-shot random keypair.
-     *
-     * Mobile: shorter timeout/attempt cap so the modal never hangs.
-     * Desktop: full default budget.
-     * Cancellation: rejecting with reason="cancelled" is a clean user action,
-     * NOT an error — the outer catch maps it to a friendly message + non-error stage.
-     */
-    const generateMintKeypairForRun = async (): Promise<Keypair> => {
-      if (!state.customAddress) return generateMintKeypair();
-      setVanityProgress({ attempts: 0, elapsedMs: 0 });
-      const handle = grindVanityMintKeypair({
-        suffix: state.customAddressSuffix.trim(),
-        caseSensitive: true,
-        maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
-        maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
-        onProgress: (p) => setVanityProgress(p),
-      });
-      vanityHandleRef.current = handle;
-      try {
-        const kp = await handle.promise;
-        return kp;
-      } finally {
-        vanityHandleRef.current = null;
-        setVanityProgress(null);
-      }
-    };
+    // (generateMintKeypairForRun + onMobile are hoisted above the retry
+    // guard so the retry path can also build a fresh keypair.)
 
     try {
       // 0. Preflight — ensure wallet has enough SOL for fee + network costs.

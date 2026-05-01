@@ -163,15 +163,17 @@ export function CreationModal({
               <CheckCircle2 className="h-8 w-8 text-success" />
             </div>
             <div className="mt-5 text-[11px] uppercase tracking-[0.2em] text-success/90">
-              Mint successful
+              {cluster === "mainnet" ? "Mint successful" : "Devnet test mint successful"}
             </div>
             <h3 className="mt-1 text-2xl font-semibold tracking-tight">
-              {tokenName || "Your token"} is live
+              {cluster === "mainnet"
+                ? `${tokenName || "Your token"} is live`
+                : `${tokenName || "Your token"} minted on devnet`}
             </h3>
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-              Your token has been minted successfully. To make it tradable, copy the
-              mint address below and paste it into Raydium's create-pool flow to
-              add liquidity.
+              {cluster === "mainnet"
+                ? "Your token has been minted on Solana mainnet. To make it tradable, copy the mint address below and paste it into Raydium's create-pool flow to add liquidity."
+                : "Your token has been minted on Solana devnet for testing. Devnet tokens are not real and cannot be traded on Raydium — switch to Mainnet for a real launch."}
             </p>
 
             {mintAddress && (
@@ -204,20 +206,32 @@ export function CreationModal({
               </button>
             </div>
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <button
-                onClick={openRaydium}
-                className="btn-primary inline-flex items-center justify-center gap-2 rounded-full bg-gradient-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
-              >
-                Continue to Raydium <ExternalLink className="h-4 w-4" />
-              </button>
-              <button
-                onClick={onClose}
-                className="btn-secondary inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-semibold"
-              >
-                Done
-              </button>
-            </div>
+            {cluster === "mainnet" && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button
+                  onClick={openRaydium}
+                  className="btn-primary inline-flex items-center justify-center gap-2 rounded-full bg-gradient-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
+                >
+                  Continue to Raydium <ExternalLink className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={onClose}
+                  className="btn-secondary inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-semibold"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+            {cluster !== "mainnet" && (
+              <div className="mt-3">
+                <button
+                  onClick={onClose}
+                  className="btn-primary inline-flex w-full items-center justify-center rounded-full bg-gradient-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
+                >
+                  Done
+                </button>
+              </div>
+            )}
           </div>
         )}
 

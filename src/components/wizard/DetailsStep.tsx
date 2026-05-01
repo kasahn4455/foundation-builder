@@ -577,6 +577,11 @@ export function DetailsStep() {
         tokenSymbol={state.tokenSymbol}
         totalSol={totalPrice}
         cluster={state.cluster}
+        vanityProgress={vanityProgress ?? undefined}
+        vanitySuffix={state.customAddress ? state.customAddressSuffix : undefined}
+        onCancelVanity={() => {
+          vanityHandleRef.current?.cancel();
+        }}
         onClose={() => setStage(null)}
         onRetry={handleCreate}
       />

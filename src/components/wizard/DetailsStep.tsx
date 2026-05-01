@@ -18,6 +18,8 @@ import {
   isLikelyMobile,
   MAX_SUFFIX_LENGTH,
   MAX_SUFFIX_LENGTH_MOBILE,
+  MOBILE_MAX_ATTEMPTS,
+  MOBILE_MAX_ELAPSED_MS,
   type VanityHandle,
 } from "@/lib/solana/vanity";
 import { Keypair } from "@solana/web3.js";

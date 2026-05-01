@@ -811,6 +811,14 @@ export function DetailsStep() {
       hasPendingMint: Boolean(pendingMint),
       stage,
     });
+    if (stage !== null && stage !== "error") {
+      console.warn("[wizard] duplicate create attempt blocked", {
+        reason: "modal-state-not-retryable",
+        stage,
+        hasPendingMint: Boolean(pendingMint),
+      });
+      return;
+    }
     if (isRunningRef.current || actionLocked) {
       console.warn("[wizard] duplicate create attempt blocked", {
         reason: "action-lock-active",
@@ -969,7 +977,7 @@ export function DetailsStep() {
         </button>
         <button
           onClick={handleCreate}
-          disabled={actionLocked || (stage !== null && stage !== "success" && stage !== "error")}
+          disabled={actionLocked || stage !== null}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
           {wallet

@@ -704,8 +704,7 @@ export function DetailsStep() {
           await completeMint(runId, devMintAttempt);
         } catch (mintErr) {
           const msg = describeMintError(mintErr, false);
-          setErrorMessage(msg);
-          setFlowStage(runId, "error", "devnet-mint-failed");
+          commitFinalError(runId, msg, "devnet-mint-failed");
         }
         return;
       }
@@ -796,11 +795,12 @@ export function DetailsStep() {
           metadata: prepared.metadata,
           needsVerify: true,
         });
-        setErrorMessage(
+        commitFinalError(
+          runId,
           `Payment was sent on-chain but the server could not verify it just now (${verifyMsg}). ` +
             `You will not be charged again — click Retry Mint to re-verify and finish minting.`,
+          "payment-verify-failed",
         );
-        setFlowStage(runId, "error", "payment-verify-failed");
         return;
       }
 
@@ -836,8 +836,7 @@ export function DetailsStep() {
           retryPath: "completeMint-only",
           err: mintErr,
         });
-        setErrorMessage(msg);
-        setFlowStage(runId, "error", "mint-failed-after-payment");
+        commitFinalError(runId, msg, "mint-failed-after-payment");
       }
     } catch (err) {
       // Vanity grinder cancellation is a deliberate user action — close the
@@ -860,8 +859,7 @@ export function DetailsStep() {
         ? "You cancelled the transaction in your wallet. No charge was made — click Try Again to retry."
         : msg;
       console.error("[wizard] runCreation failed", { cluster: state.cluster, isWalletRejection, msg });
-      setErrorMessage(friendly);
-      setFlowStage(runId, "error", "runCreation-catch");
+      commitFinalError(runId, friendly, "runCreation-catch");
     }
   }
 

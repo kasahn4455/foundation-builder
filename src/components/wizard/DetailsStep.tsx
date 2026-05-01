@@ -833,47 +833,12 @@ export function DetailsStep() {
         </div>
       </div>
 
-      {/* Network selector */}
-      <div className="rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <h4 className="font-medium">Network</h4>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choose the Solana cluster to mint on. Devnet is free test SOL.
-            </p>
-          </div>
-          <div className="inline-flex rounded-full border border-white/10 bg-background/40 p-1">
-            <button
-              type="button"
-              onClick={() => set("cluster", "devnet")}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
-                state.cluster === "devnet"
-                  ? "bg-gradient-primary text-primary-foreground"
-                  : "text-muted-foreground"
-              }`}
-            >
-              Devnet
-            </button>
-            <button
-              type="button"
-              onClick={() => set("cluster", "mainnet")}
-              className={`px-4 py-1.5 text-xs font-semibold rounded-full transition ${
-                state.cluster === "mainnet"
-                  ? "bg-gradient-primary text-primary-foreground"
-                  : "text-muted-foreground"
-              }`}
-            >
-              Mainnet
-            </button>
-          </div>
-        </div>
-        {state.cluster === "devnet" && (
-          <p className="mt-3 text-xs text-success">
-            Devnet test mode: platform fee is disabled. Only devnet network/account costs apply.
-          </p>
-        )}
-      </div>
-
+      {/*
+        Network selector — hidden in public production. The app is mainnet-only
+        for end users (default cluster set to "mainnet" in WizardContext). All
+        cluster-aware code paths and the devnet-test mode in runCreation remain
+        intact for internal use; we simply don't render the toggle.
+      */}
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2 sm:justify-between">
         <button
           onClick={() => setStep(2)}

@@ -52,7 +52,10 @@ const initial: WizardState = {
   revokeFreeze: false,
   revokeMint: true,
   revokeUpdate: true,
-  cluster: "devnet",
+  // Public production default. Devnet remains internally supported (the
+  // `Cluster` type and all cluster-aware code paths are unchanged) but the
+  // UI no longer exposes a selector, so every public mint targets mainnet.
+  cluster: "mainnet",
 };
 
 type Ctx = {

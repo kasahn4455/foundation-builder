@@ -42,6 +42,9 @@ export function DetailsStep() {
   const [mintAddress, setMintAddress] = useState<string | undefined>();
   const [paymentSig, setPaymentSig] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
+  const vanityHandleRef = useRef<VanityHandle | null>(null);
+  const [suffixError, setSuffixError] = useState<string | undefined>();
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
     paymentSignature: string;

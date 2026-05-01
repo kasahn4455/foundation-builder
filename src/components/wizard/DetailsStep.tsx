@@ -61,6 +61,14 @@ export function DetailsStep() {
     revokeUpdate: boolean;
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
+    /**
+     * When true, server-side payment verification has not yet succeeded for
+     * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
+     * retry we MUST re-run verifyPayment first — never createOrder/sendPayment
+     * again — because verifyPayment is idempotent server-side for the same
+     * (order_id, signature) pair and will not re-charge the user.
+     */
+    needsVerify?: boolean;
   } | null>(null);
 
   // Safety net: if the user navigates away mid-grind (or the component

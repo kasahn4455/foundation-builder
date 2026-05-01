@@ -417,20 +417,56 @@ export function DetailsStep() {
           onChange={(v) => set("modifyCreator", v)}
         />
         {/*
-          Custom Token Address — Coming Soon.
-          Vanity-suffix mint-address grinding (brute-forcing a Keypair whose
-          public key ends with the requested base58 suffix) is not implemented
-          in this project. A 4-char suffix averages ~11M keypair generations,
-          which would block the browser main thread for many minutes without a
-          dedicated Web Worker grinder + progress UI + cancellation.
-          Until that infrastructure exists, this option is disabled and free
-          (see src/lib/pricing.ts ADDON_KEYS). Do not pass `customAddressSuffix`
-          into a PublicKey constructor anywhere.
+          Custom Token Address — real Web Worker vanity grinder.
+          - Suffix is validated client-side (base58 alphabet only, ≤ MAX_SUFFIX_LENGTH).
+          - Grinding runs off the main thread (src/lib/solana/vanityWorker.ts).
+          - The resulting Keypair IS the actual mint used in the on-chain tx.
+          - Suffix text is NEVER passed to PublicKey/Keypair constructors —
+            only ASCII-validated through validateVanitySuffix().
         */}
-        <ComingSoonRow
+        <AdvancedRow
           title="Custom Token Address"
-          desc="Generate a token with a custom address suffix (vanity address). Coming soon."
-        />
+          desc="Generate a mint address ending in your chosen suffix. Longer or harder suffixes take more time to find."
+          checked={state.customAddress}
+          onChange={(v) => {
+            set("customAddress", v);
+            if (!v) setSuffixError(undefined);
+          }}
+        >
+          {state.customAddress && (
+            <div className="mt-3 space-y-2">
+              <input
+                value={state.customAddressSuffix}
+                onChange={(e) => {
+                  // Strip whitespace and clamp length BEFORE storing — never
+                  // hold raw user text longer than the supported suffix.
+                  const raw = e.target.value.replace(/\s+/g, "").slice(0, MAX_SUFFIX_LENGTH);
+                  set("customAddressSuffix", raw);
+                  if (!raw) {
+                    setSuffixError(undefined);
+                    return;
+                  }
+                  const v = validateVanitySuffix(raw);
+                  setSuffixError(v.ok ? undefined : v.reason);
+                }}
+                placeholder="MEME"
+                maxLength={MAX_SUFFIX_LENGTH}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="input-dark"
+              />
+              <p className="text-xs text-muted-foreground">
+                Up to {MAX_SUFFIX_LENGTH} base58 characters (no 0, O, I, l).
+                1–2 chars are near-instant; 3 chars usually under a minute;
+                4 chars can take several minutes. Search runs in your browser.
+              </p>
+              {suffixError && (
+                <p className="text-xs text-destructive">{suffixError}</p>
+              )}
+            </div>
+          )}
+        </AdvancedRow>
 
       </div>
 

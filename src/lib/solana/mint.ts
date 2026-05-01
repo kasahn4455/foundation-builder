@@ -19,6 +19,7 @@ import {
   createSetAuthorityInstruction,
   AuthorityType,
   getTokenMetadata,
+  getMint,
 } from "@solana/spl-token";
 import {
   createInitializeInstruction as createInitializeTokenMetadataInstruction,
@@ -146,11 +147,14 @@ export type MintTokenResult = {
   ataAddress: string;
   signature: string;
   /**
-   * Resolved metadata update authority after mint confirmation. Read directly
-   * from the on-chain TokenMetadata extension via `getTokenMetadata`.
-   *  - `null`  → authority was permanently revoked (revokeUpdate=true)
-   *  - string  → base58 address that controls future metadata updates
+   * Resolved on-chain authorities AFTER the mint tx is confirmed. These are
+   * read directly from chain state via `getMint` and `getTokenMetadata`, NOT
+   * inferred from the user's selections — so they reflect actual reality.
+   *   - `null`  → authority was permanently revoked
+   *   - string  → base58 address that still controls this authority
    */
+  mintAuthority: string | null;
+  freezeAuthority: string | null;
   metadataUpdateAuthority: string | null;
 };
 
@@ -195,23 +199,49 @@ export async function mintToken({
   );
 
   // ---------------------------------------------------------------------------
-  // Update-authority decision (single source of truth).
+  // Authority decisions (single source of truth for ALL three authorities).
   //
-  // The metadata update authority is set ONCE here, explicitly, and then
-  // (optionally) revoked in the same atomic transaction. There is no other
-  // place in the codebase that decides this — the wizard's `revokeUpdate`
-  // flag flows directly into the on-chain instructions below.
+  // Each authority is initialized to the connected wallet, then optionally
+  // revoked (set to null) in the SAME atomic transaction. Either both
+  // assignment and revocation succeed, or the whole mint fails — there is
+  // no window where the on-chain state diverges from the user's selection.
   //
-  //   revokeUpdate=false → updateAuthority stays as the connected wallet
-  //   revokeUpdate=true  → updateAuthority is set to null after init
+  //   revokeMint   = true  → MintTokens authority   → null  after init
+  //                  false → MintTokens authority   → wallet (user can mint more)
+  //   revokeFreeze = true  → FreezeAccount authority → null
+  //                  false → FreezeAccount authority → wallet (user can freeze)
+  //   revokeUpdate = true  → Metadata updateAuthority → null
+  //                  false → Metadata updateAuthority → wallet (user can edit)
+  //
+  // The revoke instructions are appended below in this exact order:
+  //   freeze → update → mint
+  // (Mint last because we need MintTokens authority to mint the initial supply.)
   // ---------------------------------------------------------------------------
+  const initialMintAuthority: PublicKey = payer;
+  const initialFreezeAuthority: PublicKey = payer;
   const initialUpdateAuthority: PublicKey = payer;
+
+  const finalMintAuthority: PublicKey | null = revokeMint ? null : payer;
+  const finalFreezeAuthority: PublicKey | null = revokeFreeze ? null : payer;
   const finalUpdateAuthority: PublicKey | null = revokeUpdate ? null : payer;
-  console.info("[mint] metadata update-authority plan", {
+
+  console.info("[mint] authority plan", {
     mint: mintPk.toBase58(),
-    initial: initialUpdateAuthority.toBase58(),
-    final: finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null,
-    revokeUpdate,
+    mintAuthority: {
+      initial: initialMintAuthority.toBase58(),
+      final: finalMintAuthority ? finalMintAuthority.toBase58() : null,
+      revoke: revokeMint,
+    },
+    freezeAuthority: {
+      initial: initialFreezeAuthority.toBase58(),
+      final: finalFreezeAuthority ? finalFreezeAuthority.toBase58() : null,
+      revoke: revokeFreeze,
+    },
+    updateAuthority: {
+      initial: initialUpdateAuthority.toBase58(),
+      final: finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null,
+      revoke: revokeUpdate,
+    },
   });
 
   // Build the on-chain TokenMetadata struct so we can size the mint account
@@ -289,11 +319,13 @@ export async function mintToken({
         TOKEN_2022_PROGRAM_ID,
       ),
       // 3. Initialize the mint (must come AFTER all extension initializers).
+      //    The mint authority and freeze authority assigned here are the REAL
+      //    on-chain authorities. They may be revoked later in this same tx.
       createInitializeMintInstruction(
         mintPk,
         decimals,
-        payer, // mint authority
-        payer, // freeze authority
+        initialMintAuthority, // mint authority (handles MINT REVOKE below)
+        initialFreezeAuthority, // freeze authority (handles FREEZE REVOKE below)
         TOKEN_2022_PROGRAM_ID,
       ),
       // 4. Initialize the on-chain Token Metadata (name/symbol/uri + update authority).
@@ -348,24 +380,39 @@ export async function mintToken({
       ),
     );
 
-    // 7. Optional authority revocations.
+    // -------------------------------------------------------------------------
+    // 7. Authority finalization. Order matters:
+    //    a) FREEZE — safe to revoke any time after init.
+    //    b) UPDATE — safe to revoke any time after metadata init.
+    //    c) MINT   — MUST come last because we needed it above to mint the
+    //                initial supply. Revoking earlier would break createMintTo.
+    // -------------------------------------------------------------------------
+
+    // (a) FREEZE AUTHORITY
     if (revokeFreeze) {
+      console.info("[mint] appending freeze-authority revoke instruction", {
+        mint: mintPk.toBase58(),
+        oldAuthority: initialFreezeAuthority.toBase58(),
+        newAuthority: null,
+      });
       tx.add(
         createSetAuthorityInstruction(
           mintPk,
-          payer,
+          initialFreezeAuthority,
           AuthorityType.FreezeAccount,
           null,
           [],
           TOKEN_2022_PROGRAM_ID,
         ),
       );
+    } else {
+      console.info("[mint] keeping freeze authority on connected wallet", {
+        mint: mintPk.toBase58(),
+        freezeAuthority: initialFreezeAuthority.toBase58(),
+      });
     }
 
-    // Revoke the metadata update authority in the SAME transaction so it
-    // either succeeds atomically with mint creation or fails together —
-    // there is never a window where the wallet appears to hold the authority
-    // but the user expected it revoked.
+    // (b) METADATA UPDATE AUTHORITY
     if (revokeUpdate) {
       console.info("[mint] appending update-authority revoke instruction", {
         mint: mintPk.toBase58(),
@@ -387,17 +434,28 @@ export async function mintToken({
       });
     }
 
+    // (c) MINT AUTHORITY — must be LAST so the initial supply mint above succeeds.
     if (revokeMint) {
+      console.info("[mint] appending mint-authority revoke instruction", {
+        mint: mintPk.toBase58(),
+        oldAuthority: initialMintAuthority.toBase58(),
+        newAuthority: null,
+      });
       tx.add(
         createSetAuthorityInstruction(
           mintPk,
-          payer,
+          initialMintAuthority,
           AuthorityType.MintTokens,
           null,
           [],
           TOKEN_2022_PROGRAM_ID,
         ),
       );
+    } else {
+      console.info("[mint] keeping mint authority on connected wallet", {
+        mint: mintPk.toBase58(),
+        mintAuthority: initialMintAuthority.toBase58(),
+      });
     }
 
     tx.partialSign(mintKeypair);
@@ -427,34 +485,65 @@ export async function mintToken({
     );
 
     // -------------------------------------------------------------------------
-    // Post-confirmation verification: read the on-chain TokenMetadata extension
-    // back from the mint and assert the authority matches what we intended.
-    // This is what makes the "revoke update" claim real — we don't trust the
-    // instruction list, we read state from the chain.
+    // Post-confirmation verification (REAL check, not optimistic).
+    //
+    // Read all three authorities back from chain state and assert each one
+    // matches what we intended. If any of them doesn't, we throw — the
+    // caller treats this as a failed mint even though the tx confirmed,
+    // because the user's selection wasn't honored.
+    //   - mint   + freeze authorities  → from `getMint` (base mint state)
+    //   - update authority             → from `getTokenMetadata` (extension)
     // -------------------------------------------------------------------------
-    failurePoint = "verifyMetadataAuthority";
-    let onChainAuthority: string | null = null;
+    failurePoint = "verifyAuthorities";
+    let onChainMintAuthority: string | null = null;
+    let onChainFreezeAuthority: string | null = null;
+    let onChainUpdateAuthority: string | null = null;
     try {
-      const onChain = await getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID);
-      if (!onChain) {
+      const [mintInfo, metadataInfo] = await Promise.all([
+        getMint(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
+        getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
+      ]);
+      if (!metadataInfo) {
         throw new Error("TokenMetadata extension missing from mint after confirmation");
       }
-      onChainAuthority = onChain.updateAuthority ? onChain.updateAuthority.toBase58() : null;
-      const expected = finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null;
-      console.info("[mint] metadata update-authority verified", {
+
+      onChainMintAuthority = mintInfo.mintAuthority ? mintInfo.mintAuthority.toBase58() : null;
+      onChainFreezeAuthority = mintInfo.freezeAuthority ? mintInfo.freezeAuthority.toBase58() : null;
+      onChainUpdateAuthority = metadataInfo.updateAuthority
+        ? metadataInfo.updateAuthority.toBase58()
+        : null;
+
+      const expectedMint = finalMintAuthority ? finalMintAuthority.toBase58() : null;
+      const expectedFreeze = finalFreezeAuthority ? finalFreezeAuthority.toBase58() : null;
+      const expectedUpdate = finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null;
+
+      console.info("[mint] authorities verified", {
         mint: mintPk.toBase58(),
-        expected,
-        onChain: onChainAuthority,
-        revokeUpdate,
+        mintAuthority: { expected: expectedMint, onChain: onChainMintAuthority, revoke: revokeMint },
+        freezeAuthority: { expected: expectedFreeze, onChain: onChainFreezeAuthority, revoke: revokeFreeze },
+        updateAuthority: { expected: expectedUpdate, onChain: onChainUpdateAuthority, revoke: revokeUpdate },
       });
-      if (onChainAuthority !== expected) {
+
+      if (onChainMintAuthority !== expectedMint) {
         throw new Error(
-          `Metadata update authority mismatch after mint. Expected ${expected ?? "null (revoked)"}, on-chain ${onChainAuthority ?? "null"}.`,
+          `Mint authority mismatch. Expected ${expectedMint ?? "null (revoked)"}, on-chain ${onChainMintAuthority ?? "null"}.`,
+        );
+      }
+      if (onChainFreezeAuthority !== expectedFreeze) {
+        throw new Error(
+          `Freeze authority mismatch. Expected ${expectedFreeze ?? "null (revoked)"}, on-chain ${onChainFreezeAuthority ?? "null"}.`,
+        );
+      }
+      if (onChainUpdateAuthority !== expectedUpdate) {
+        throw new Error(
+          `Metadata update authority mismatch. Expected ${expectedUpdate ?? "null (revoked)"}, on-chain ${onChainUpdateAuthority ?? "null"}.`,
         );
       }
     } catch (verifyErr) {
-      console.error("[mint] metadata authority verification failed", {
+      console.error("[mint] authority verification failed", {
         mint: mintPk.toBase58(),
+        revokeMint,
+        revokeFreeze,
         revokeUpdate,
         err: verifyErr,
       });
@@ -465,7 +554,9 @@ export async function mintToken({
       mintAddress: mintPk.toBase58(),
       ataAddress: ata.toBase58(),
       signature,
-      metadataUpdateAuthority: onChainAuthority,
+      mintAuthority: onChainMintAuthority,
+      freezeAuthority: onChainFreezeAuthority,
+      metadataUpdateAuthority: onChainUpdateAuthority,
     };
   } catch (err) {
     console.error("[mint] mintToken failed", { cluster, failurePoint, err });

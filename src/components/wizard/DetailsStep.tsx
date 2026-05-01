@@ -230,22 +230,27 @@ export function DetailsStep() {
         return;
       }
 
-      // 1. Preparing — create order on the backend
+      // 1. Preparing — create order on the backend AND upload off-chain metadata.
+      //    The metadata URI must exist before the on-chain mint tx is built so the
+      //    Token-2022 TokenMetadata extension can reference it at initialization.
       setStage("preparing");
-      const order = await createOrder({
-        data: {
-          wallet_address: wallet.address,
-          token_name: state.tokenName.trim(),
-          token_symbol: state.tokenSymbol.trim(),
-          decimals: state.decimals,
-          initial_supply: supplyDigits,
-          cluster: state.cluster,
-          base_fee_sol: 0.3,
-          addon_fee_sol: computeAddonFee(selected),
-          selected_options: selected,
-          total_fee_sol: computeTotalFee(selected),
-        },
-      });
+      const [order, prepared] = await Promise.all([
+        createOrder({
+          data: {
+            wallet_address: wallet.address,
+            token_name: state.tokenName.trim(),
+            token_symbol: state.tokenSymbol.trim(),
+            decimals: state.decimals,
+            initial_supply: supplyDigits,
+            cluster: state.cluster,
+            base_fee_sol: 0.3,
+            addon_fee_sol: computeAddonFee(selected),
+            selected_options: selected,
+            total_fee_sol: computeTotalFee(selected),
+          },
+        }),
+        prepareMetadata(),
+      ]);
 
       // 2. Confirming — wallet signs payment
       setStage("confirming");
@@ -278,7 +283,10 @@ export function DetailsStep() {
         initialSupply: supplyDigits,
         revokeFreeze: state.revokeFreeze,
         revokeMint: state.revokeMint,
-      } as const;
+        revokeUpdate: state.revokeUpdate,
+        mintKeypair: prepared.mintKeypair,
+        metadata: prepared.metadata,
+      };
       setPendingMint(mintAttempt);
 
       // 4. Creating Token — only after payment verified

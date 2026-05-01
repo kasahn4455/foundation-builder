@@ -57,6 +57,9 @@ export function CreationModal({
   tokenSymbol,
   totalSol,
   cluster = "devnet",
+  vanityProgress,
+  vanitySuffix,
+  onCancelVanity,
   onClose,
   onRetry,
 }: CreationModalProps) {

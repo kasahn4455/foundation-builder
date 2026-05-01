@@ -190,7 +190,7 @@ export function DetailsStep() {
 
   function commitFinalError(runId: number, message: string, label: string) {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate render-trigger path ignored", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         label,
@@ -218,7 +218,7 @@ export function DetailsStep() {
     mintRes: Awaited<ReturnType<typeof mintToken>>,
   ) {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate success state ignored", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
@@ -253,7 +253,7 @@ export function DetailsStep() {
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate success state ignored", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
@@ -263,7 +263,7 @@ export function DetailsStep() {
       return false;
     }
     if (mintCompletionInFlightRef.current) {
-      console.warn("[wizard] duplicate create attempt blocked", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         orderId: args.orderId,
         reason: "mint-completion-already-in-flight",

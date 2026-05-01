@@ -473,6 +473,11 @@ export function DetailsStep() {
       return;
     }
 
+    console.info("[wizard] create flow start", {
+      runId,
+      cluster: state.cluster,
+      hasPendingMint: Boolean(pendingMint),
+    });
     setFlowStage(runId, "preparing", "create-flow-start");
 
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
@@ -931,6 +936,7 @@ export function DetailsStep() {
 
   const finalResult = terminalSnapshot?.kind === "success" ? terminalSnapshot.result : null;
   const stableErrorMessage = terminalSnapshot?.kind === "error" ? terminalSnapshot.message : errorMessage;
+  const modalStage: CreationStage = terminalSnapshot?.kind ?? stage ?? "preparing";
 
   return (
     <div className="space-y-6">
@@ -1078,7 +1084,7 @@ export function DetailsStep() {
 
       <CreationModal
         open={stage !== null}
-        stage={stage ?? "preparing"}
+        stage={modalStage}
         mintAddress={finalResult?.mintAddress ?? mintAddress}
         paymentSignature={finalResult?.paymentSignature ?? paymentSig}
         errorMessage={stableErrorMessage}

@@ -204,16 +204,26 @@ export function DetailsStep() {
       // catch in runCreation will set stage="error" so the user sees this in
       // the modal — we DO NOT continue to mint with a placeholder URI.
       const reason = uploadErr instanceof Error ? uploadErr.message : "Unknown error";
-      console.error("[wizard] metadata upload failed", { mint: mintAddr, reason });
-      throw new Error(`Could not prepare token metadata: ${reason}`);
+      console.error("[wizard] METADATA_PREPARE_FAILED — mint will not proceed", {
+        mint: mintAddr,
+        reason,
+      });
+      throw new Error(
+        `Could not prepare token metadata — mint was not started, and you have not been charged. ${reason}`,
+      );
     }
 
     if (!res?.uri || !/^https:\/\//i.test(res.uri)) {
-      console.error("[wizard] metadata upload returned invalid URI", { mint: mintAddr, res });
-      throw new Error("Metadata upload returned an invalid URI. Aborting mint.");
+      console.error("[wizard] METADATA_URI_INVALID — mint will not proceed", {
+        mint: mintAddr,
+        res,
+      });
+      throw new Error(
+        "Metadata upload returned an invalid URI. Mint was not started, and you have not been charged.",
+      );
     }
 
-    console.info("[wizard] metadata ready", {
+    console.info("[wizard] METADATA_URI_READY", {
       mint: mintAddr,
       uri: res.uri,
       image_url: res.image_url,

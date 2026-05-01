@@ -106,20 +106,45 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
     // 1. Upload image (if provided)
     let imageUrl: string | undefined;
     if (data.image_base64 && data.image_mime) {
-      const bytes = Buffer.from(data.image_base64, "base64");
+      // Reject obviously-empty payloads before allocating a Buffer so we
+      // produce a clean user-facing error instead of an opaque storage 400.
+      if (data.image_base64.trim().length === 0) {
+        console.error("[metadata] image rejected: empty base64", { mint: prefix });
+        throw new Error("Token logo is empty. Please re-upload the image.");
+      }
+      let bytes: Buffer;
+      try {
+        bytes = Buffer.from(data.image_base64, "base64");
+      } catch (decodeErr) {
+        console.error("[metadata] image rejected: base64 decode failed", {
+          mint: prefix,
+          err: decodeErr,
+        });
+        throw new Error("Token logo could not be decoded. Please re-upload the image.");
+      }
       // Server-side defensive size cap (~5MB decoded). Wallets reject huge
       // images and Storage object size is rate-limited too.
       const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-      if (bytes.byteLength === 0) {
-        throw new Error("Token logo decoded to 0 bytes — please re-upload the image.");
+      const MIN_IMAGE_BYTES = 16; // smaller than any real image header
+      if (bytes.byteLength < MIN_IMAGE_BYTES) {
+        console.error("[metadata] image rejected: too small", {
+          mint: prefix,
+          bytes: bytes.byteLength,
+        });
+        throw new Error("Token logo decoded to an empty/invalid file — please re-upload the image.");
       }
       if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        console.error("[metadata] image rejected: too large", {
+          mint: prefix,
+          bytes: bytes.byteLength,
+        });
         throw new Error(
           `Token logo is too large (${(bytes.byteLength / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
         );
       }
       const ext = extFromMime(data.image_mime);
       const imagePath = `${prefix}/logo.${ext}`;
+      const imgT0 = Date.now();
       const { error: imgErr } = await supabaseAdmin.storage
         .from(BUCKET)
         .upload(imagePath, bytes, {
@@ -127,7 +152,7 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
           upsert: true,
         });
       if (imgErr) {
-        console.error("[metadata] image upload failed", {
+        console.error("[metadata] IMAGE_UPLOAD_FAILED", {
           mint: prefix,
           path: imagePath,
           bytes: bytes.byteLength,
@@ -139,11 +164,13 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         );
       }
       imageUrl = publicUrlFor(imagePath);
-      console.info("[metadata] image uploaded", {
+      console.info("[metadata] IMAGE_UPLOAD_OK", {
         mint: prefix,
         path: imagePath,
         bytes: bytes.byteLength,
+        mime: data.image_mime,
         url: imageUrl,
+        elapsedMs: Date.now() - imgT0,
       });
     }
 
@@ -199,6 +226,7 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
 
     const manifestPath = `${prefix}/metadata.json`;
     const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
+    const manifestT0 = Date.now();
     const { error: jsonErr } = await supabaseAdmin.storage
       .from(BUCKET)
       .upload(manifestPath, manifestBytes, {
@@ -206,7 +234,7 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         upsert: true,
       });
     if (jsonErr) {
-      console.error("[metadata] manifest upload failed", {
+      console.error("[metadata] MANIFEST_UPLOAD_FAILED", {
         mint: prefix,
         path: manifestPath,
         bytes: manifestBytes.byteLength,
@@ -216,14 +244,20 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         `Failed to upload token metadata manifest: ${jsonErr.message || "unknown storage error"}`,
       );
     }
+    console.info("[metadata] MANIFEST_UPLOAD_OK", {
+      mint: prefix,
+      path: manifestPath,
+      bytes: manifestBytes.byteLength,
+      elapsedMs: Date.now() - manifestT0,
+    });
 
     const uri = publicUrlFor(manifestPath);
-    console.info("[metadata] upload ok", {
+    console.info("[metadata] METADATA_URI_READY", {
       mint: prefix,
       uri,
       image_url: imageUrl,
       manifestBytes: manifestBytes.byteLength,
-      elapsedMs: Date.now() - t0,
+      totalElapsedMs: Date.now() - t0,
     });
 
     return {

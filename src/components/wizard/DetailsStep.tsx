@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
@@ -12,6 +12,12 @@ import {
   generateMintKeypair,
 } from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
+import {
+  grindVanityMintKeypair,
+  validateVanitySuffix,
+  MAX_SUFFIX_LENGTH,
+  type VanityHandle,
+} from "@/lib/solana/vanity";
 import { Keypair } from "@solana/web3.js";
 
 /** Read a File as raw base64 (without `data:` prefix) for server upload. */

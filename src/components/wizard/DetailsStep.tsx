@@ -159,6 +159,7 @@ export function DetailsStep() {
       });
       return;
     }
+    const nextStage: CreateFlowStage = next ?? "idle";
     if (hasTerminalCommit() && next !== null) {
       console.warn("[wizard] duplicate render-trigger path ignored", {
         runId,
@@ -168,20 +169,22 @@ export function DetailsStep() {
       });
       return;
     }
-    setStage((prev) => {
-      if (prev === next) return prev;
-      if (prev === "creating" && (next === "preparing" || next === "confirming" || next === "processing")) {
+    setFlow((prev) => {
+      if (prev.stage === nextStage) return prev;
+      if (prev.stage === "creating" && (next === "preparing" || next === "confirming" || next === "processing")) {
         console.warn("[wizard] duplicate render-trigger path ignored", {
           runId,
-          from: prev,
+          from: prev.stage,
           to: next,
           label,
           reason: "creating-stage-locked",
         });
         return prev;
       }
-      console.info("[wizard] flow transition", { runId, from: prev, to: next, label });
-      return next;
+      console.info("[wizard] flow transition", { runId, from: prev.stage, to: nextStage, label });
+      return nextStage === "idle"
+        ? { stage: "idle" }
+        : { ...prev, stage: nextStage };
     });
   }
 
@@ -198,12 +201,14 @@ export function DetailsStep() {
 
     hasCommittedErrorRef.current = true;
     console.info("[wizard] final error state committed", { runId, label, message });
-    setTerminalSnapshot({ kind: "error", message });
-    setErrorMessage(message);
-    setStage((prev) => {
-      if (prev === "error") return prev;
-      console.info("[wizard] flow transition", { runId, from: prev, to: "error", label });
-      return "error";
+    setFlow((prev) => {
+      if (prev.stage === "error" && prev.terminalSnapshot?.kind === "error") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev.stage, to: "error", label });
+      return {
+        stage: "error",
+        paymentSignature: prev.paymentSignature,
+        terminalSnapshot: { kind: "error", message },
+      };
     });
   }
 
@@ -234,15 +239,15 @@ export function DetailsStep() {
       cluster: args.cluster,
     };
     console.info("[wizard] final success state committed", committed);
-    setTerminalSnapshot({ kind: "success", result: committed });
-    setMintAddress(committed.mintAddress);
-    setPaymentSig(committed.paymentSignature);
-    setErrorMessage(undefined);
     setPendingMint(null);
-    setStage((prev) => {
-      if (prev === "success") return prev;
-      console.info("[wizard] flow transition", { runId, from: prev, to: "success", label: "final-success-commit" });
-      return "success";
+    setFlow((prev) => {
+      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev.stage, to: "success", label: "final-success-commit" });
+      return {
+        stage: "success",
+        paymentSignature: committed.paymentSignature,
+        terminalSnapshot: { kind: "success", result: committed },
+      };
     });
   }
 

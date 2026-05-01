@@ -197,6 +197,16 @@ export function DetailsStep() {
   }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
+    if (!isActiveRun(runId) || hasCommittedSuccessRef.current) {
+      console.warn("[wizard] duplicate success callback ignored", {
+        runId,
+        activeRunId: activeRunIdRef.current,
+        alreadyCommitted: hasCommittedSuccessRef.current,
+        orderId: args.orderId,
+        reason: "mint-start-blocked-before-wallet-request",
+      });
+      return false;
+    }
     if (mintCompletionInFlightRef.current) {
       console.warn("[wizard] duplicate create attempt blocked", {
         runId,

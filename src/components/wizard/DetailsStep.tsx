@@ -655,7 +655,7 @@ export function DetailsStep() {
           />
           <AuthorityCard
             title="Revoke Update"
-            desc="Update Authority allows changing token metadata. Revoke it to make metadata permanent."
+            desc="Update Authority allows changing the on-chain name, symbol, and metadata URI. Revoke it to make those on-chain fields permanent. (Off-chain JSON content at the URI is not affected.)"
             checked={state.revokeUpdate}
             onClick={() => set("revokeUpdate", !state.revokeUpdate)}
           />

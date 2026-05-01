@@ -172,7 +172,7 @@ export function CreationModal({
             </h3>
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
               {cluster === "mainnet"
-                ? "Your token has been minted on Solana mainnet. To make it tradable, copy the mint address below and paste it into Raydium's create-pool flow to add liquidity."
+                ? "Your token has been minted on Solana mainnet. To make it tradable, copy the mint address below and paste it into Raydium's create-pool flow yourself to add liquidity (the address is not pre-filled)."
                 : "Your token has been minted on Solana devnet for testing. Devnet tokens are not real and cannot be traded on Raydium — switch to Mainnet for a real launch."}
             </p>
 

@@ -33,7 +33,7 @@ const faqs = [
   },
   {
     q: "Can I add a custom logo and metadata to my token?",
-    a: "Yes. You can set the name, symbol, decimals, supply, and upload a logo and description during the wizard. Metadata is written on-chain using the Token-2022 Token Metadata extension, with the logo and JSON manifest hosted in public storage and referenced by HTTPS URI.",
+    a: "Yes. You can set the name, symbol, decimals, supply, and upload a logo and description during the wizard. The on-chain Token-2022 Token Metadata extension stores the name, symbol, and a HTTPS URI; the logo and JSON manifest (description, socials) are hosted in public storage at that URI.",
   },
   {
     q: "What happens if the transaction fails?",

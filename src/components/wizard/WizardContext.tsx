@@ -70,10 +70,13 @@ export function WizardProvider({ children }: { children: ReactNode }) {
   const set = <K extends keyof WizardState>(k: K, v: WizardState[K]) =>
     setState((s) => ({ ...s, [k]: v }));
 
+  // NOTE: `customAddress` (vanity suffix) is NOT charged — it's marked
+  // Coming Soon in the UI because vanity keypair grinding isn't yet
+  // implemented in this project. Keep the toggle (so user intent is
+  // recorded), but it contributes 0 SOL to the total.
   const totalPrice =
     BASE_FEE_SOL +
     (state.modifyCreator ? ADDON_FEE_SOL : 0) +
-    (state.customAddress ? ADDON_FEE_SOL : 0) +
     (state.revokeFreeze ? ADDON_FEE_SOL : 0) +
     (state.revokeMint ? ADDON_FEE_SOL : 0) +
     (state.revokeUpdate ? ADDON_FEE_SOL : 0);

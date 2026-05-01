@@ -301,7 +301,27 @@ export function DetailsStep() {
       // free-test where no real payment exists.
       setPaymentSig(isDevnetTestRetry ? undefined : pendingMint.paymentSignature);
       try {
-        await completeMint(pendingMint);
+        // If a previous attempt sent the payment but verifyPayment failed
+        // (e.g. RPC hiccup), re-run verifyPayment first. The server is
+        // idempotent for the same (order_id, signature) pair — it will NOT
+        // re-charge the user. Only after verify succeeds do we mint.
+        if (pendingMint.needsVerify && !isDevnetTestRetry) {
+          setStage("processing");
+          await verifyPayment({
+            data: {
+              order_id: pendingMint.orderId,
+              wallet_address: pendingMint.walletAddress,
+              payment_signature: pendingMint.paymentSignature,
+              cluster: pendingMint.cluster,
+            },
+          });
+          // Verified — clear the flag so future retries skip straight to mint.
+          const verified = { ...pendingMint, needsVerify: false };
+          setPendingMint(verified);
+          await completeMint(verified);
+        } else {
+          await completeMint(pendingMint);
+        }
         console.info("[wizard] retry mint succeeded", {
           orderId: pendingMint.orderId,
           paymentSignature: pendingMint.paymentSignature,

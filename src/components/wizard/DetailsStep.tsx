@@ -49,6 +49,10 @@ type FinalSuccessResult = {
   cluster: "devnet" | "mainnet";
 };
 
+type TerminalSnapshot =
+  | { kind: "success"; result: FinalSuccessResult }
+  | { kind: "error"; message: string };
+
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
   const { wallet, provider, openPicker } = useWallet();
@@ -56,7 +60,7 @@ export function DetailsStep() {
   const [mintAddress, setMintAddress] = useState<string | undefined>();
   const [paymentSig, setPaymentSig] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const [finalResult, setFinalResult] = useState<FinalSuccessResult | null>(null);
+  const [terminalSnapshot, setTerminalSnapshot] = useState<TerminalSnapshot | null>(null);
   const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
   const vanityHandleRef = useRef<VanityHandle | null>(null);
   const [suffixError, setSuffixError] = useState<string | undefined>();
@@ -79,6 +83,7 @@ export function DetailsStep() {
   const activeRunIdRef = useRef(0);
   const nextRunIdRef = useRef(0);
   const hasCommittedSuccessRef = useRef(false);
+  const hasCommittedErrorRef = useRef(false);
   const mintCompletionInFlightRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
@@ -136,6 +141,10 @@ export function DetailsStep() {
     return activeRunIdRef.current === runId;
   }
 
+  function hasTerminalCommit() {
+    return hasCommittedSuccessRef.current || hasCommittedErrorRef.current;
+  }
+
   function setFlowStage(runId: number, next: CreationStage | null, label: string) {
     if (!isActiveRun(runId)) {
       console.warn("[wizard] stale modal state transition ignored", {
@@ -146,18 +155,51 @@ export function DetailsStep() {
       });
       return;
     }
-    if (hasCommittedSuccessRef.current && next !== "success" && next !== null) {
-      console.warn("[wizard] duplicate modal state transition ignored after success", {
+    if (hasTerminalCommit() && next !== null) {
+      console.warn("[wizard] duplicate render-trigger path ignored", {
         runId,
         next,
         label,
+        terminal: hasCommittedSuccessRef.current ? "success" : "error",
       });
       return;
     }
     setStage((prev) => {
       if (prev === next) return prev;
+      if (prev === "creating" && (next === "preparing" || next === "confirming" || next === "processing")) {
+        console.warn("[wizard] duplicate render-trigger path ignored", {
+          runId,
+          from: prev,
+          to: next,
+          label,
+          reason: "creating-stage-locked",
+        });
+        return prev;
+      }
       console.info("[wizard] flow transition", { runId, from: prev, to: next, label });
       return next;
+    });
+  }
+
+  function commitFinalError(runId: number, message: string, label: string) {
+    if (!isActiveRun(runId) || hasTerminalCommit()) {
+      console.warn("[wizard] duplicate render-trigger path ignored", {
+        runId,
+        activeRunId: activeRunIdRef.current,
+        label,
+        terminal: hasCommittedSuccessRef.current ? "success" : hasCommittedErrorRef.current ? "error" : null,
+      });
+      return;
+    }
+
+    hasCommittedErrorRef.current = true;
+    console.info("[wizard] final error state committed", { runId, label, message });
+    setTerminalSnapshot({ kind: "error", message });
+    setErrorMessage(message);
+    setStage((prev) => {
+      if (prev === "error") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev, to: "error", label });
+      return "error";
     });
   }
 
@@ -166,11 +208,11 @@ export function DetailsStep() {
     args: NonNullable<typeof pendingMint>,
     mintRes: Awaited<ReturnType<typeof mintToken>>,
   ) {
-    if (!isActiveRun(runId) || hasCommittedSuccessRef.current) {
-      console.warn("[wizard] duplicate success callback ignored", {
+    if (!isActiveRun(runId) || hasTerminalCommit()) {
+      console.warn("[wizard] duplicate success state ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
-        alreadyCommitted: hasCommittedSuccessRef.current,
+        alreadyCommitted: hasTerminalCommit(),
         orderId: args.orderId,
         mint: mintRes.mintAddress,
       });
@@ -187,21 +229,25 @@ export function DetailsStep() {
       feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
       cluster: args.cluster,
     };
-    console.info("[wizard] final success state commit", committed);
-    setFinalResult(committed);
+    console.info("[wizard] final success state committed", committed);
+    setTerminalSnapshot({ kind: "success", result: committed });
     setMintAddress(committed.mintAddress);
     setPaymentSig(committed.paymentSignature);
     setErrorMessage(undefined);
     setPendingMint(null);
-    setFlowStage(runId, "success", "final-success-commit");
+    setStage((prev) => {
+      if (prev === "success") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev, to: "success", label: "final-success-commit" });
+      return "success";
+    });
   }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
-    if (!isActiveRun(runId) || hasCommittedSuccessRef.current) {
-      console.warn("[wizard] duplicate success callback ignored", {
+    if (!isActiveRun(runId) || hasTerminalCommit()) {
+      console.warn("[wizard] duplicate success state ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
-        alreadyCommitted: hasCommittedSuccessRef.current,
+        alreadyCommitted: hasTerminalCommit(),
         orderId: args.orderId,
         reason: "mint-start-blocked-before-wallet-request",
       });
@@ -217,6 +263,12 @@ export function DetailsStep() {
     }
     mintCompletionInFlightRef.current = true;
     setFlowStage(runId, "creating", "mint-started");
+    console.info("[wizard] mint started", {
+      runId,
+      orderId: args.orderId,
+      mint: args.mintKeypair.publicKey.toBase58(),
+      cluster: args.cluster,
+    });
     console.info("[wizard] MINT_TX_BUILD + SIGN_REQUEST", {
       orderId: args.orderId,
       mint: args.mintKeypair.publicKey.toBase58(),
@@ -240,6 +292,12 @@ export function DetailsStep() {
         mint: mintRes.mintAddress,
         signature: mintRes.signature,
       });
+      console.info("[wizard] mint succeeded", {
+        runId,
+        orderId: args.orderId,
+        mint: mintRes.mintAddress,
+        signature: mintRes.signature,
+      });
 
       // Devnet free-test mode mints without an order — skip backend persistence.
       if (args.orderId !== "devnet-test") {
@@ -254,6 +312,12 @@ export function DetailsStep() {
           },
         });
         console.info("[wizard] save-token-result success", {
+          orderId: args.orderId,
+          mint: mintRes.mintAddress,
+          tokenSignature: mintRes.signature,
+        });
+        console.info("[wizard] save-token-result succeeded", {
+          runId,
           orderId: args.orderId,
           mint: mintRes.mintAddress,
           tokenSignature: mintRes.signature,
@@ -402,12 +466,19 @@ export function DetailsStep() {
   async function runCreation(runId: number) {
     setErrorMessage(undefined);
     setMintAddress(undefined);
-    setFinalResult(null);
+    setTerminalSnapshot(null);
 
     if (!wallet || !provider) {
       openPicker();
       return;
     }
+
+    console.info("[wizard] create flow start", {
+      runId,
+      cluster: state.cluster,
+      hasPendingMint: Boolean(pendingMint),
+    });
+    setFlowStage(runId, "preparing", "create-flow-start");
 
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
     // fresh mint keypair (random or vanity-grinded) on demand.
@@ -420,7 +491,16 @@ export function DetailsStep() {
         caseSensitive: true,
         maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
         maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
-        onProgress: (p) => setVanityProgress(p),
+        onProgress: (p) => {
+          if (!isActiveRun(runId) || hasTerminalCommit()) {
+            console.warn("[wizard] duplicate render-trigger path ignored", {
+              runId,
+              reason: "stale-vanity-progress",
+            });
+            return;
+          }
+          setVanityProgress(p);
+        },
       });
       vanityHandleRef.current = handle;
       try {
@@ -428,7 +508,9 @@ export function DetailsStep() {
         return kp;
       } finally {
         vanityHandleRef.current = null;
-        setVanityProgress(null);
+        if (isActiveRun(runId) && !hasTerminalCommit()) {
+          setVanityProgress(null);
+        }
       }
     };
 
@@ -534,8 +616,7 @@ export function DetailsStep() {
           failurePoint,
           err: mintErr,
         });
-        setErrorMessage(msg);
-        setFlowStage(runId, "error", "retry-mint-failed");
+        commitFinalError(runId, msg, "retry-mint-failed");
       }
       return;
     }
@@ -545,13 +626,11 @@ export function DetailsStep() {
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
     if (!state.tokenName.trim() || !state.tokenSymbol.trim()) {
-      setErrorMessage("Token name and symbol are required.");
-      setFlowStage(runId, "error", "validation-name-symbol");
+      commitFinalError(runId, "Token name and symbol are required.", "validation-name-symbol");
       return;
     }
     if (!supplyDigits || BigInt(supplyDigits) <= 0n) {
-      setErrorMessage("Total supply must be greater than zero.");
-      setFlowStage(runId, "error", "validation-supply");
+      commitFinalError(runId, "Total supply must be greater than zero.", "validation-supply");
       return;
     }
 
@@ -572,15 +651,15 @@ export function DetailsStep() {
     if (state.customAddress) {
       const v = validateVanitySuffix(state.customAddressSuffix);
       if (!v.ok) {
-        setErrorMessage(`Custom Token Address: ${v.reason}`);
-        setFlowStage(runId, "error", "validation-vanity-suffix");
+        commitFinalError(runId, `Custom Token Address: ${v.reason}`, "validation-vanity-suffix");
         return;
       }
       if (v.suffix.length > effectiveMaxSuffix) {
-        setErrorMessage(
+        commitFinalError(
+          runId,
           `Custom Token Address: on mobile please use ${effectiveMaxSuffix} characters or fewer (longer suffixes can take too long on phones).`,
+          "validation-vanity-mobile-length",
         );
-        setFlowStage(runId, "error", "validation-vanity-mobile-length");
         return;
       }
     }
@@ -607,12 +686,13 @@ export function DetailsStep() {
         });
         if (balanceSol < requiredSol) {
           const shortBy = (requiredSol - balanceSol).toFixed(4);
-          setErrorMessage(
+          commitFinalError(
+            runId,
             isDevnetFreeMode
               ? `Insufficient devnet SOL. Fund this wallet with devnet SOL from a faucet before minting. (Need ~${requiredSol.toFixed(3)} SOL, balance ${balanceSol.toFixed(4)} SOL.)`
               : `Insufficient SOL on Solana mainnet. This launch needs ${totalPrice.toFixed(2)} SOL platform fee + ~${NETWORK_BUFFER_SOL.toFixed(2)} SOL for Solana network costs (~${requiredSol.toFixed(2)} SOL total). Your wallet currently has ${balanceSol.toFixed(4)} SOL — add at least ${shortBy} more SOL and try again. No charge has been made.`,
+            "balance-preflight-insufficient",
           );
-          setFlowStage(runId, "error", "balance-preflight-insufficient");
           return;
         }
       } catch (balErr) {
@@ -621,11 +701,12 @@ export function DetailsStep() {
           // On mainnet we will not let the user proceed to a real payment when
           // we can't confirm their balance — surface the RPC failure clearly.
           const reason = balErr instanceof Error ? balErr.message : String(balErr);
-          setErrorMessage(
+          commitFinalError(
+            runId,
             `Could not reach Solana mainnet to check your wallet balance, so the launch was stopped before any payment was made. ` +
               `Please check your connection and try again. If this keeps happening, the mainnet RPC may be temporarily unavailable. (Details: ${reason})`,
+            "balance-preflight-failed",
           );
-          setFlowStage(runId, "error", "balance-preflight-failed");
           return;
         }
         // Devnet: don't block the free-test flow on transient RPC hiccups.
@@ -657,8 +738,7 @@ export function DetailsStep() {
           await completeMint(runId, devMintAttempt);
         } catch (mintErr) {
           const msg = describeMintError(mintErr, false);
-          setErrorMessage(msg);
-          setFlowStage(runId, "error", "devnet-mint-failed");
+          commitFinalError(runId, msg, "devnet-mint-failed");
         }
         return;
       }
@@ -749,11 +829,12 @@ export function DetailsStep() {
           metadata: prepared.metadata,
           needsVerify: true,
         });
-        setErrorMessage(
+        commitFinalError(
+          runId,
           `Payment was sent on-chain but the server could not verify it just now (${verifyMsg}). ` +
             `You will not be charged again — click Retry Mint to re-verify and finish minting.`,
+          "payment-verify-failed",
         );
-        setFlowStage(runId, "error", "payment-verify-failed");
         return;
       }
 
@@ -789,8 +870,7 @@ export function DetailsStep() {
           retryPath: "completeMint-only",
           err: mintErr,
         });
-        setErrorMessage(msg);
-        setFlowStage(runId, "error", "mint-failed-after-payment");
+        commitFinalError(runId, msg, "mint-failed-after-payment");
       }
     } catch (err) {
       // Vanity grinder cancellation is a deliberate user action — close the
@@ -813,8 +893,7 @@ export function DetailsStep() {
         ? "You cancelled the transaction in your wallet. No charge was made — click Try Again to retry."
         : msg;
       console.error("[wizard] runCreation failed", { cluster: state.cluster, isWalletRejection, msg });
-      setErrorMessage(friendly);
-      setFlowStage(runId, "error", "runCreation-catch");
+      commitFinalError(runId, friendly, "runCreation-catch");
     }
   }
 
@@ -850,6 +929,7 @@ export function DetailsStep() {
     isRunningRef.current = true;
     setActionLocked(true);
     hasCommittedSuccessRef.current = false;
+    hasCommittedErrorRef.current = false;
     mintCompletionInFlightRef.current = false;
     console.info("[wizard] action lock set", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
@@ -864,6 +944,10 @@ export function DetailsStep() {
       console.info("[wizard] CREATE_TOKEN_HANDLER_END", { runId });
     });
   }
+
+  const finalResult = terminalSnapshot?.kind === "success" ? terminalSnapshot.result : null;
+  const stableErrorMessage = terminalSnapshot?.kind === "error" ? terminalSnapshot.message : errorMessage;
+  const modalStage: CreationStage = terminalSnapshot?.kind ?? stage ?? "preparing";
 
   return (
     <div className="space-y-6">
@@ -1011,10 +1095,10 @@ export function DetailsStep() {
 
       <CreationModal
         open={stage !== null}
-        stage={stage ?? "preparing"}
+        stage={modalStage}
         mintAddress={finalResult?.mintAddress ?? mintAddress}
         paymentSignature={finalResult?.paymentSignature ?? paymentSig}
-        errorMessage={errorMessage}
+        errorMessage={stableErrorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
         totalSol={finalResult?.feePaid ?? totalPrice}

@@ -100,6 +100,15 @@ export async function sendPayment({
 
   let signature: string;
   try {
+    // One-and-only-one wallet popup per call. The `payment:wallet-popup`
+    // counter (window-scoped) makes a duplicate Phantom approval immediately
+    // visible in the live console as `[mint] PAYMENT_WALLET_POPUP n=2`.
+    const popupN =
+      typeof window !== "undefined"
+        ? ((window as unknown as { __payment_popup_n?: number }).__payment_popup_n =
+            ((window as unknown as { __payment_popup_n?: number }).__payment_popup_n ?? 0) + 1)
+        : 1;
+    console.info("[mint] PAYMENT_WALLET_POPUP", { n: popupN, lamports, cluster });
     if (provider.signAndSendTransaction) {
       const res = await provider.signAndSendTransaction(tx);
       signature = res.signature;
@@ -109,6 +118,7 @@ export async function sendPayment({
         skipPreflight: false,
       });
     }
+    console.info("[mint] PAYMENT_WALLET_RETURNED", { n: popupN, signature });
 
     await connection.confirmTransaction(
       { signature, blockhash, lastValidBlockHeight },

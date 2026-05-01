@@ -92,13 +92,13 @@ export type GrindOptions = {
   onProgress?: (p: VanityProgress) => void;
 };
 
-const DEFAULT_MAX_ATTEMPTS = 8_000_000;
-const DEFAULT_MAX_ELAPSED_MS = 180_000;
+export const DEFAULT_MAX_ATTEMPTS = 8_000_000;
+export const DEFAULT_MAX_ELAPSED_MS = 180_000;
 // Mobile devices have far less single-thread perf and stricter background-tab
 // throttling. We cap mobile grinds at ~90s / 2M attempts so the user gets a
 // clean failure instead of a hung modal.
-const MOBILE_MAX_ATTEMPTS = 2_000_000;
-const MOBILE_MAX_ELAPSED_MS = 90_000;
+export const MOBILE_MAX_ATTEMPTS = 2_000_000;
+export const MOBILE_MAX_ELAPSED_MS = 90_000;
 
 /**
  * Spawn a Web Worker that grinds Solana keypairs until the public key

@@ -18,6 +18,8 @@ import {
   isLikelyMobile,
   MAX_SUFFIX_LENGTH,
   MAX_SUFFIX_LENGTH_MOBILE,
+  MOBILE_MAX_ATTEMPTS,
+  MOBILE_MAX_ELAPSED_MS,
   type VanityHandle,
 } from "@/lib/solana/vanity";
 import { Keypair } from "@solana/web3.js";
@@ -321,8 +323,8 @@ export function DetailsStep() {
       const handle = grindVanityMintKeypair({
         suffix: state.customAddressSuffix.trim(),
         caseSensitive: true,
-        maxAttempts: onMobile ? 2_000_000 : undefined,
-        maxElapsedMs: onMobile ? 90_000 : undefined,
+        maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
+        maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
         onProgress: (p) => setVanityProgress(p),
       });
       vanityHandleRef.current = handle;

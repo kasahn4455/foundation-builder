@@ -4,8 +4,30 @@ import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
 import { CreationModal, type CreationStage } from "./CreationModal";
 import { createOrder, verifyPayment, saveTokenResult } from "@/server/orders.functions";
-import { sendPayment, mintToken, getWalletBalanceSol } from "@/lib/solana/mint";
+import { uploadTokenMetadata } from "@/server/metadata.functions";
+import {
+  sendPayment,
+  mintToken,
+  getWalletBalanceSol,
+  generateMintKeypair,
+} from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
+import { Keypair } from "@solana/web3.js";
+
+/** Read a File as raw base64 (without `data:` prefix) for server upload. */
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunk)),
+    );
+  }
+  return btoa(binary);
+}
 
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();

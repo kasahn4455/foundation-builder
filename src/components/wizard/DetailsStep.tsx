@@ -726,7 +726,7 @@ export function DetailsStep() {
           `Payment was sent on-chain but the server could not verify it just now (${verifyMsg}). ` +
             `You will not be charged again — click Retry Mint to re-verify and finish minting.`,
         );
-        setStage("error");
+        setFlowStage(runId, "error", "payment-verify-failed");
         return;
       }
 
@@ -747,7 +747,7 @@ export function DetailsStep() {
 
       // 4. Creating Token — only after payment verified
       try {
-        await completeMint(mintAttempt);
+        await completeMint(runId, mintAttempt);
       } catch (mintErr) {
         // Payment succeeded but mint failed — preserve retry context and do NOT re-charge.
         // The error modal will show the canonical "Payment received. Token mint failed."
@@ -763,7 +763,7 @@ export function DetailsStep() {
           err: mintErr,
         });
         setErrorMessage(msg);
-        setStage("error");
+        setFlowStage(runId, "error", "mint-failed-after-payment");
       }
     } catch (err) {
       // Vanity grinder cancellation is a deliberate user action — close the
@@ -772,7 +772,7 @@ export function DetailsStep() {
       const reason = (err as { reason?: string } | null)?.reason;
       if (reason === "cancelled") {
         console.info("[wizard] vanity search cancelled by user");
-        setStage(null);
+        setFlowStage(runId, null, "vanity-cancelled");
         setVanityProgress(null);
         return;
       }
@@ -787,7 +787,7 @@ export function DetailsStep() {
         : msg;
       console.error("[wizard] runCreation failed", { cluster: state.cluster, isWalletRejection, msg });
       setErrorMessage(friendly);
-      setStage("error");
+      setFlowStage(runId, "error", "runCreation-catch");
     }
   }
 
@@ -796,19 +796,37 @@ export function DetailsStep() {
     // Flips in the same tick as the click so a fast double-click (or any
     // duplicate handler invocation) cannot start a second runCreation()
     // before the first one calls setStage(...) and disables the button.
-    if (isRunningRef.current) {
-      console.warn("[wizard] CREATE_TOKEN_DUPLICATE_CLICK_BLOCKED — already running");
+    console.info("[wizard] create button click start", {
+      cluster: state.cluster,
+      hasPendingMint: Boolean(pendingMint),
+      stage,
+    });
+    if (isRunningRef.current || actionLocked) {
+      console.warn("[wizard] duplicate create attempt blocked", {
+        reason: "action-lock-active",
+        stage,
+        hasPendingMint: Boolean(pendingMint),
+      });
       return;
     }
+    const runId = nextRunIdRef.current + 1;
+    nextRunIdRef.current = runId;
+    activeRunIdRef.current = runId;
     isRunningRef.current = true;
+    setActionLocked(true);
+    hasCommittedSuccessRef.current = false;
+    mintCompletionInFlightRef.current = false;
+    console.info("[wizard] action lock set", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
+      runId,
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
       pendingNeedsVerify: pendingMint?.needsVerify ?? false,
     });
-    void runCreation().finally(() => {
+    void runCreation(runId).finally(() => {
       isRunningRef.current = false;
-      console.info("[wizard] CREATE_TOKEN_HANDLER_END");
+      setActionLocked(false);
+      console.info("[wizard] CREATE_TOKEN_HANDLER_END", { runId });
     });
   }
 

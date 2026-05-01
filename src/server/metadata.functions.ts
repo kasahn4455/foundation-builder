@@ -39,6 +39,27 @@ const UploadInput = z.object({
       discord: z.string().url().max(500).optional().or(z.literal("")),
     })
     .optional(),
+  /**
+   * Creator information embedded in the off-chain manifest.
+   *
+   * The Token-2022 TokenMetadata extension does NOT carry a Metaplex-style
+   * `creators[]` array on-chain (that field only exists in the legacy
+   * Metaplex Token Metadata program). The closest standards-compliant way
+   * to expose creator info for a Token-2022 mint is via the off-chain JSON
+   * manifest pointed to by the on-chain `uri`. Wallets and explorers
+   * (Phantom, Solscan, Solflare) read these fields from the manifest.
+   *
+   * - `name`    : human-readable creator label (e.g. "MemeMinting" or a custom name)
+   * - `site`    : creator website (optional)
+   * - `address` : on-chain wallet address representing the creator (optional)
+   */
+  creator: z
+    .object({
+      name: z.string().min(1).max(64),
+      site: z.string().url().max(500).optional().or(z.literal("")),
+      address: z.string().min(32).max(44).optional().or(z.literal("")),
+    })
+    .optional(),
 });
 
 const BUCKET = "token-metadata";

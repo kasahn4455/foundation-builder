@@ -41,6 +41,7 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@solana/spl-token": "^0.4.8",
+    "@solana/spl-token-metadata": "^0.1.6",
     "@solana/web3.js": "^1.95.0",
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/vite": "^4.2.1",

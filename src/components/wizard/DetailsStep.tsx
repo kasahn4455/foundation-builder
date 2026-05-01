@@ -580,6 +580,24 @@ function AdvancedRow({
   );
 }
 
+function ComingSoonRow({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div className="card-premium rounded-2xl p-4 sm:p-5 opacity-70">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="font-medium">{title}</h4>
+            <span className="text-[11px] rounded-full bg-muted text-muted-foreground border border-border px-2 py-0.5">
+              Coming Soon
+            </span>
+          </div>
+          <p className="mt-1.5 text-sm text-muted-foreground">{desc}</p>
+        </div>
+        <Toggle checked={false} onChange={() => {}} />
+      </div>
+    </div>
+  );
+
 function AuthorityCard({
   title,
   desc,

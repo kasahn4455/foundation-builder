@@ -37,7 +37,7 @@ const faqs = [
   },
   {
     q: "What happens if the transaction fails?",
-    a: "If the on-chain mint fails after payment, our system detects it and you can retry the mint at no extra cost. If payment never confirms, no token is created and no fee is taken.",
+    a: "If the on-chain mint fails after payment, the wizard shows a clear error and a Retry button that rebuilds the mint without charging again — your payment is preserved. If payment never confirms, no token is created and no fee is taken.",
   },
   {
     q: "Can I sell my token after minting?",

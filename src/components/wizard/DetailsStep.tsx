@@ -243,11 +243,11 @@ export function DetailsStep() {
   }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
-    if (!isActiveRun(runId) || hasCommittedSuccessRef.current) {
+    if (!isActiveRun(runId) || hasTerminalCommit()) {
       console.warn("[wizard] duplicate success callback ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
-        alreadyCommitted: hasCommittedSuccessRef.current,
+        alreadyCommitted: hasTerminalCommit(),
         orderId: args.orderId,
         reason: "mint-start-blocked-before-wallet-request",
       });
@@ -448,12 +448,14 @@ export function DetailsStep() {
   async function runCreation(runId: number) {
     setErrorMessage(undefined);
     setMintAddress(undefined);
-    setFinalResult(null);
+    setTerminalSnapshot(null);
 
     if (!wallet || !provider) {
       openPicker();
       return;
     }
+
+    setFlowStage(runId, "preparing", "create-flow-start");
 
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
     // fresh mint keypair (random or vanity-grinded) on demand.

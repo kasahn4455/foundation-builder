@@ -152,18 +152,29 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
   const maxElapsedMs = opts.maxElapsedMs ?? DEFAULT_MAX_ELAPSED_MS;
   const watchdogMs = maxElapsedMs + 15_000;
   let watchdog: ReturnType<typeof setTimeout> | null = null;
+  // Hoisted so cancel() (outside the Promise executor) can reject the
+  // outstanding promise immediately when the user/unmount asks to stop.
+  let rejectOuter: ((err: unknown) => void) | null = null;
+
+  const clearWatchdog = () => {
+    if (watchdog) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
+  };
+  const terminateWorker = () => {
+    try {
+      worker.terminate();
+    } catch {
+      /* already terminated */
+    }
+  };
 
   const promise = new Promise<Keypair>((resolve, reject) => {
+    rejectOuter = reject;
     const cleanup = () => {
-      if (watchdog) {
-        clearTimeout(watchdog);
-        watchdog = null;
-      }
-      try {
-        worker.terminate();
-      } catch {
-        /* already terminated */
-      }
+      clearWatchdog();
+      terminateWorker();
     };
 
     const failTimeout = (attempts: number, elapsedMs: number) => {
@@ -269,17 +280,19 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
     cancel: () => {
       if (settled) return;
       settled = true;
-      // Hard-stop the worker immediately. Don't wait for it to acknowledge a
-      // "cancel" message — on slow mobile devices that can take seconds.
-      if (watchdog) {
-        clearTimeout(watchdog);
-        watchdog = null;
-      }
-      try {
-        worker.terminate();
-      } catch {
-        /* already terminated */
-      }
+      // Hard-stop the worker immediately and reject the outstanding promise on
+      // the same tick. Do NOT wait for the worker to acknowledge a "cancel"
+      // message — on slow mobile devices that can take seconds, leaving the
+      // wizard stuck in "preparing".
+      clearWatchdog();
+      terminateWorker();
+      rejectOuter?.(
+        Object.assign(new Error("Address generation was cancelled."), {
+          reason: "cancelled" as const,
+          attempts: 0,
+          elapsedMs: 0,
+        }),
+      );
     },
   };
 }

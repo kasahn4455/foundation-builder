@@ -61,6 +61,16 @@ export function DetailsStep() {
     metadata: { name: string; symbol: string; uri: string };
   } | null>(null);
 
+  // Safety net: if the user navigates away mid-grind (or the component
+  // unmounts for any reason), terminate the worker so it doesn't keep burning
+  // CPU/battery in the background.
+  useEffect(() => {
+    return () => {
+      vanityHandleRef.current?.cancel();
+      vanityHandleRef.current = null;
+    };
+  }, []);
+
   async function completeMint(args: NonNullable<typeof pendingMint>) {
     setStage("creating");
     const mintRes = await mintToken({

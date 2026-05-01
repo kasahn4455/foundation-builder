@@ -99,10 +99,14 @@ export function CreationModal({
   }
 
   function openRaydium() {
-    const url = mintAddress
-      ? `https://raydium.io/liquidity/create-pool/?token=${mintAddress}`
-      : "https://raydium.io/liquidity/create-pool/";
-    window.open(url, "_blank", "noopener,noreferrer");
+    // Raydium's create-pool flow doesn't support pre-filling the token via
+    // query string, so we just deep-link to the create-pool page and ask the
+    // user to paste the mint address (which we already copied / show above).
+    window.open(
+      "https://raydium.io/liquidity/create-pool/",
+      "_blank",
+      "noopener,noreferrer",
+    );
   }
 
   return (

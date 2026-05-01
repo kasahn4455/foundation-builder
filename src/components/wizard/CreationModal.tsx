@@ -244,13 +244,22 @@ export function CreationModal({
             <h3 className="mt-5 text-2xl font-semibold tracking-tight">
               {paymentSignature ? "Mint failed after payment" : "Mint failed"}
             </h3>
-            <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-              {paymentSignature
-                ? errorMessage ||
-                  "Your payment was confirmed on-chain but the mint transaction did not complete. Your payment is preserved — clicking Retry Mint will not charge you again."
-                : errorMessage ||
-                  "Something went wrong before any payment was made. Please try again."}
-            </p>
+            {paymentSignature ? (
+              <>
+                <p className="mt-2 text-sm font-medium text-foreground max-w-md mx-auto leading-relaxed">
+                  Payment received. Token mint failed. You can retry minting without paying again.
+                </p>
+                {errorMessage && (
+                  <p className="mt-2 text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
+                    Reason: {errorMessage}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
+                {errorMessage || "Something went wrong before any payment was made. Please try again."}
+              </p>
+            )}
             {paymentSignature && (
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-left">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">

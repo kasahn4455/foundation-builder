@@ -377,24 +377,39 @@ export async function mintToken({
       ),
     );
 
-    // 7. Optional authority revocations.
+    // -------------------------------------------------------------------------
+    // 7. Authority finalization. Order matters:
+    //    a) FREEZE — safe to revoke any time after init.
+    //    b) UPDATE — safe to revoke any time after metadata init.
+    //    c) MINT   — MUST come last because we needed it above to mint the
+    //                initial supply. Revoking earlier would break createMintTo.
+    // -------------------------------------------------------------------------
+
+    // (a) FREEZE AUTHORITY
     if (revokeFreeze) {
+      console.info("[mint] appending freeze-authority revoke instruction", {
+        mint: mintPk.toBase58(),
+        oldAuthority: initialFreezeAuthority.toBase58(),
+        newAuthority: null,
+      });
       tx.add(
         createSetAuthorityInstruction(
           mintPk,
-          payer,
+          initialFreezeAuthority,
           AuthorityType.FreezeAccount,
           null,
           [],
           TOKEN_2022_PROGRAM_ID,
         ),
       );
+    } else {
+      console.info("[mint] keeping freeze authority on connected wallet", {
+        mint: mintPk.toBase58(),
+        freezeAuthority: initialFreezeAuthority.toBase58(),
+      });
     }
 
-    // Revoke the metadata update authority in the SAME transaction so it
-    // either succeeds atomically with mint creation or fails together —
-    // there is never a window where the wallet appears to hold the authority
-    // but the user expected it revoked.
+    // (b) METADATA UPDATE AUTHORITY
     if (revokeUpdate) {
       console.info("[mint] appending update-authority revoke instruction", {
         mint: mintPk.toBase58(),
@@ -416,17 +431,28 @@ export async function mintToken({
       });
     }
 
+    // (c) MINT AUTHORITY — must be LAST so the initial supply mint above succeeds.
     if (revokeMint) {
+      console.info("[mint] appending mint-authority revoke instruction", {
+        mint: mintPk.toBase58(),
+        oldAuthority: initialMintAuthority.toBase58(),
+        newAuthority: null,
+      });
       tx.add(
         createSetAuthorityInstruction(
           mintPk,
-          payer,
+          initialMintAuthority,
           AuthorityType.MintTokens,
           null,
           [],
           TOKEN_2022_PROGRAM_ID,
         ),
       );
+    } else {
+      console.info("[mint] keeping mint authority on connected wallet", {
+        mint: mintPk.toBase58(),
+        mintAuthority: initialMintAuthority.toBase58(),
+      });
     }
 
     tx.partialSign(mintKeypair);

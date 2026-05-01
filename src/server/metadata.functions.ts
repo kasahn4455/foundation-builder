@@ -39,6 +39,27 @@ const UploadInput = z.object({
       discord: z.string().url().max(500).optional().or(z.literal("")),
     })
     .optional(),
+  /**
+   * Creator information embedded in the off-chain manifest.
+   *
+   * The Token-2022 TokenMetadata extension does NOT carry a Metaplex-style
+   * `creators[]` array on-chain (that field only exists in the legacy
+   * Metaplex Token Metadata program). The closest standards-compliant way
+   * to expose creator info for a Token-2022 mint is via the off-chain JSON
+   * manifest pointed to by the on-chain `uri`. Wallets and explorers
+   * (Phantom, Solscan, Solflare) read these fields from the manifest.
+   *
+   * - `name`    : human-readable creator label (e.g. "MemeMinting" or a custom name)
+   * - `site`    : creator website (optional)
+   * - `address` : on-chain wallet address representing the creator (optional)
+   */
+  creator: z
+    .object({
+      name: z.string().min(1).max(64),
+      site: z.string().url().max(500).optional().or(z.literal("")),
+      address: z.string().min(32).max(44).optional().or(z.literal("")),
+    })
+    .optional(),
 });
 
 const BUCKET = "token-metadata";
@@ -107,6 +128,30 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
     const externalUrl = data.external_url || socials.website;
     if (externalUrl) manifest.external_url = externalUrl;
     if (Object.keys(extensions).length > 0) manifest.extensions = extensions;
+
+    // Embed creator info in the manifest. We write it both at the top level
+    // (`creator`) and inside `extensions.creator` so wallets/explorers that
+    // look in either place can surface it. We also emit a Metaplex-shaped
+    // `properties.creators[]` entry when an address is provided — this is
+    // the legacy structure marketplaces still parse, even for Token-2022
+    // mints, and serves as the closest correct mapping since the on-chain
+    // TokenMetadata extension itself does not store creators.
+    if (data.creator) {
+      const creatorEntry: Record<string, string> = { name: data.creator.name };
+      if (data.creator.site) creatorEntry.site = data.creator.site;
+      if (data.creator.address) creatorEntry.address = data.creator.address;
+      manifest.creator = creatorEntry;
+      const ext = (manifest.extensions as Record<string, unknown> | undefined) ?? {};
+      ext.creator = creatorEntry;
+      manifest.extensions = ext;
+      if (data.creator.address) {
+        const props = (manifest.properties as Record<string, unknown> | undefined) ?? {};
+        props.creators = [
+          { address: data.creator.address, share: 100, verified: false },
+        ];
+        manifest.properties = props;
+      }
+    }
 
     const manifestPath = `${prefix}/metadata.json`;
     const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");

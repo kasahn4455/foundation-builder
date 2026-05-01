@@ -112,6 +112,28 @@ export function DetailsStep() {
         }
       : undefined;
 
+    // Modify Creator Information
+    // --------------------------------------------------------------
+    // Token-2022's TokenMetadata extension does not have a Metaplex-style
+    // creators array on-chain, so creator info is carried in the off-chain
+    // JSON manifest (the closest standards-compliant mapping). The on-chain
+    // `updateAuthority` is the cryptographic owner; this field is the
+    // human-readable attribution wallets/explorers display.
+    //
+    //  - Not selected: default creator "MemeMinting" (project attribution).
+    //  - Selected:     attribute the connected wallet as the creator.
+    const creator = state.modifyCreator
+      ? {
+          name: state.tokenName.trim() || "Custom Creator",
+          site: state.socialsEnabled ? state.website || "" : "",
+          address: wallet?.address ?? "",
+        }
+      : {
+          name: "MemeMinting",
+          site: "https://mememinting.app",
+          address: "",
+        };
+
     const res = await uploadTokenMetadata({
       data: {
         mint_address: mintAddr,
@@ -122,8 +144,10 @@ export function DetailsStep() {
         image_mime: imageMime,
         external_url: socials?.website || "",
         socials,
+        creator,
       },
     });
+
 
     return {
       mintKeypair,

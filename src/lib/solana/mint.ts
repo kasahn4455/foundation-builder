@@ -316,11 +316,13 @@ export async function mintToken({
         TOKEN_2022_PROGRAM_ID,
       ),
       // 3. Initialize the mint (must come AFTER all extension initializers).
+      //    The mint authority and freeze authority assigned here are the REAL
+      //    on-chain authorities. They may be revoked later in this same tx.
       createInitializeMintInstruction(
         mintPk,
         decimals,
-        payer, // mint authority
-        payer, // freeze authority
+        initialMintAuthority, // mint authority (handles MINT REVOKE below)
+        initialFreezeAuthority, // freeze authority (handles FREEZE REVOKE below)
         TOKEN_2022_PROGRAM_ID,
       ),
       // 4. Initialize the on-chain Token Metadata (name/symbol/uri + update authority).

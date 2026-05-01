@@ -53,14 +53,18 @@ type TerminalSnapshot =
   | { kind: "success"; result: FinalSuccessResult }
   | { kind: "error"; message: string };
 
+type CreateFlowStage = "idle" | CreationStage;
+
+type CreateFlowState = {
+  stage: CreateFlowStage;
+  paymentSignature?: string;
+  terminalSnapshot?: TerminalSnapshot;
+};
+
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
   const { wallet, provider, openPicker } = useWallet();
-  const [stage, setStage] = useState<CreationStage | null>(null);
-  const [mintAddress, setMintAddress] = useState<string | undefined>();
-  const [paymentSig, setPaymentSig] = useState<string | undefined>();
-  const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const [terminalSnapshot, setTerminalSnapshot] = useState<TerminalSnapshot | null>(null);
+  const [flow, setFlow] = useState<CreateFlowState>({ stage: "idle" });
   const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
   const vanityHandleRef = useRef<VanityHandle | null>(null);
   const [suffixError, setSuffixError] = useState<string | undefined>();

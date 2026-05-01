@@ -242,12 +242,15 @@ export function CreationModal({
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
             <h3 className="mt-5 text-2xl font-semibold tracking-tight">
-              {paymentSignature ? "Mint failed after payment" : "Mint failed"}
+              {paymentSignature ? "Payment received — mint failed" : "Mint failed"}
             </h3>
             {paymentSignature ? (
               <>
                 <p className="mt-2 text-sm font-medium text-foreground max-w-md mx-auto leading-relaxed">
                   Payment received. Token mint failed. You can retry minting without paying again.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
+                  Your payment is preserved on-chain. Retry will only rebuild the mint transaction — you will not be charged again.
                 </p>
                 {errorMessage && (
                   <p className="mt-2 text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">

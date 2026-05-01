@@ -600,7 +600,21 @@ export async function mintToken({
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
+        cluster === "mainnet"
+          ? "Your mint transaction expired before Solana mainnet could confirm it. Your payment is preserved — click Try Again to rebuild and resend the mint without paying again."
+          : "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
+      );
+    }
+    if (/insufficient|0x1$|debit an account|InsufficientFundsForRent/i.test(msg)) {
+      throw new Error(
+        cluster === "mainnet"
+          ? "Insufficient SOL in your wallet to cover Solana network costs for the mint transaction. Add more SOL and click Try Again — your payment is preserved."
+          : "Insufficient devnet SOL to cover the mint transaction. Fund this wallet from a devnet faucet and try again.",
+      );
+    }
+    if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
+      throw new Error(
+        "Solana mainnet RPC is unreachable from your browser. Your payment is preserved — please click Try Again.",
       );
     }
     throw err;

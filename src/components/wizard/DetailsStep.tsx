@@ -530,10 +530,15 @@ export function DetailsStep() {
         return;
       }
       const msg = err instanceof Error ? err.message : "Something went wrong";
-      // Map common wallet rejections to a friendlier message
-      const friendly = /User rejected|reject/i.test(msg)
-        ? "You cancelled the transaction in your wallet."
+      // Map common wallet-rejection variants (Phantom, Solflare, Backpack,
+      // Glow, etc. all phrase this slightly differently) to a friendly line.
+      const isWalletRejection =
+        /user rejected|user denied|request rejected|rejected the request|cancell?ed|declined/i.test(msg) ||
+        (err as { code?: number } | null)?.code === 4001;
+      const friendly = isWalletRejection
+        ? "You cancelled the transaction in your wallet. No charge was made — click Try Again to retry."
         : msg;
+      console.error("[wizard] runCreation failed", { cluster: state.cluster, isWalletRejection, msg });
       setErrorMessage(friendly);
       setStage("error");
     }

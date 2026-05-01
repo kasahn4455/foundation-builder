@@ -458,6 +458,11 @@ export function DetailsStep() {
               cluster: pendingMint.cluster,
             },
           });
+          console.info("[wizard] payment verified", {
+            runId,
+            orderId: pendingMint.orderId,
+            paymentSignature: pendingMint.paymentSignature,
+          });
         }
 
         // CRITICAL — the previous mint attempt may have already created the
@@ -699,6 +704,11 @@ export function DetailsStep() {
             payment_signature: sig,
             cluster: state.cluster,
           },
+        });
+        console.info("[wizard] payment verified", {
+          runId,
+          orderId: order.order_id,
+          paymentSignature: sig,
         });
       } catch (verifyErr) {
         const verifyMsg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
@@ -959,7 +969,7 @@ export function DetailsStep() {
         </button>
         <button
           onClick={handleCreate}
-          disabled={stage !== null && stage !== "success" && stage !== "error"}
+          disabled={actionLocked || (stage !== null && stage !== "success" && stage !== "error")}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
           {wallet
@@ -977,13 +987,13 @@ export function DetailsStep() {
       <CreationModal
         open={stage !== null}
         stage={stage ?? "preparing"}
-        mintAddress={mintAddress}
-        paymentSignature={paymentSig}
+        mintAddress={finalResult?.mintAddress ?? mintAddress}
+        paymentSignature={finalResult?.paymentSignature ?? paymentSig}
         errorMessage={errorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
-        totalSol={totalPrice}
-        cluster={state.cluster}
+        totalSol={finalResult?.feePaid ?? totalPrice}
+        cluster={finalResult?.cluster ?? state.cluster}
         vanityProgress={vanityProgress ?? undefined}
         vanitySuffix={state.customAddress ? state.customAddressSuffix : undefined}
         onCancelVanity={() => {

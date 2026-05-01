@@ -299,7 +299,7 @@ export function DetailsStep() {
           paymentSignature: pendingMint.paymentSignature,
         });
       } catch (mintErr) {
-        const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        const msg = describeMintError(mintErr, !isDevnetTestRetry);
         console.error("[wizard] retry mint failed", {
           orderId: pendingMint.orderId,
           paymentSignature: pendingMint.paymentSignature,

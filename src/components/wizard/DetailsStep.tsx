@@ -75,9 +75,11 @@ export function DetailsStep() {
    * subsequent attempts still work.
    */
   const isRunningRef = useRef(false);
+  const [actionLocked, setActionLocked] = useState(false);
   const activeRunIdRef = useRef(0);
   const nextRunIdRef = useRef(0);
   const hasCommittedSuccessRef = useRef(false);
+  const mintCompletionInFlightRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
     paymentSignature: string;
@@ -130,48 +132,124 @@ export function DetailsStep() {
     return msg;
   }
 
-  async function completeMint(args: NonNullable<typeof pendingMint>) {
-    setStage("creating");
+  function isActiveRun(runId: number) {
+    return activeRunIdRef.current === runId;
+  }
+
+  function setFlowStage(runId: number, next: CreationStage | null, label: string) {
+    if (!isActiveRun(runId)) {
+      console.warn("[wizard] stale modal state transition ignored", {
+        runId,
+        activeRunId: activeRunIdRef.current,
+        next,
+        label,
+      });
+      return;
+    }
+    if (hasCommittedSuccessRef.current && next !== "success" && next !== null) {
+      console.warn("[wizard] duplicate modal state transition ignored after success", {
+        runId,
+        next,
+        label,
+      });
+      return;
+    }
+    setStage((prev) => (prev === next ? prev : next));
+  }
+
+  function commitFinalSuccess(
+    runId: number,
+    args: NonNullable<typeof pendingMint>,
+    mintRes: Awaited<ReturnType<typeof mintToken>>,
+  ) {
+    if (!isActiveRun(runId) || hasCommittedSuccessRef.current) {
+      console.warn("[wizard] duplicate success callback ignored", {
+        runId,
+        activeRunId: activeRunIdRef.current,
+        alreadyCommitted: hasCommittedSuccessRef.current,
+        orderId: args.orderId,
+        mint: mintRes.mintAddress,
+      });
+      return;
+    }
+
+    hasCommittedSuccessRef.current = true;
+    const committed: FinalSuccessResult = {
+      orderId: args.orderId,
+      mintAddress: mintRes.mintAddress,
+      paymentSignature: args.paymentSignature === "devnet-test" ? undefined : args.paymentSignature,
+      tokenSignature: mintRes.signature,
+      ataAddress: mintRes.ataAddress,
+      feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
+      cluster: args.cluster,
+    };
+    console.info("[wizard] final success state commit", committed);
+    setFinalResult(committed);
+    setMintAddress(committed.mintAddress);
+    setPaymentSig(committed.paymentSignature);
+    setErrorMessage(undefined);
+    setPendingMint(null);
+    setFlowStage(runId, "success", "final-success-commit");
+  }
+
+  async function completeMint(runId: number, args: NonNullable<typeof pendingMint>) {
+    if (mintCompletionInFlightRef.current) {
+      console.warn("[wizard] duplicate create attempt blocked", {
+        runId,
+        orderId: args.orderId,
+        reason: "mint-completion-already-in-flight",
+      });
+      return;
+    }
+    mintCompletionInFlightRef.current = true;
+    setFlowStage(runId, "creating", "mint-started");
     console.info("[wizard] MINT_TX_BUILD + SIGN_REQUEST", {
       orderId: args.orderId,
       mint: args.mintKeypair.publicKey.toBase58(),
       cluster: args.cluster,
     });
-    const mintRes = await mintToken({
-      provider: provider!,
-      payerAddress: args.walletAddress,
-      cluster: args.cluster,
-      decimals: args.decimals,
-      initialSupply: args.initialSupply,
-      revokeFreeze: args.revokeFreeze,
-      revokeMint: args.revokeMint,
-      revokeUpdate: args.revokeUpdate,
-      mintKeypair: args.mintKeypair,
-      metadata: args.metadata,
-    });
-    console.info("[wizard] MINT_SIGNED", {
-      orderId: args.orderId,
-      mint: mintRes.mintAddress,
-      signature: mintRes.signature,
-    });
-
-    // Devnet free-test mode mints without an order — skip backend persistence.
-    if (args.orderId !== "devnet-test") {
-      await saveTokenResult({
-        data: {
-          order_id: args.orderId,
-          payment_signature: args.paymentSignature,
-          token_signature: mintRes.signature,
-          mint_address: mintRes.mintAddress,
-          ata_address: mintRes.ataAddress,
-          cluster: args.cluster,
-        },
+    try {
+      const mintRes = await mintToken({
+        provider: provider!,
+        payerAddress: args.walletAddress,
+        cluster: args.cluster,
+        decimals: args.decimals,
+        initialSupply: args.initialSupply,
+        revokeFreeze: args.revokeFreeze,
+        revokeMint: args.revokeMint,
+        revokeUpdate: args.revokeUpdate,
+        mintKeypair: args.mintKeypair,
+        metadata: args.metadata,
       });
-    }
+      console.info("[wizard] mint success", {
+        orderId: args.orderId,
+        mint: mintRes.mintAddress,
+        signature: mintRes.signature,
+      });
 
-    setMintAddress(mintRes.mintAddress);
-    setPendingMint(null);
-    setStage("success");
+      // Devnet free-test mode mints without an order — skip backend persistence.
+      if (args.orderId !== "devnet-test") {
+        await saveTokenResult({
+          data: {
+            order_id: args.orderId,
+            payment_signature: args.paymentSignature,
+            token_signature: mintRes.signature,
+            mint_address: mintRes.mintAddress,
+            ata_address: mintRes.ataAddress,
+            cluster: args.cluster,
+          },
+        });
+        console.info("[wizard] save-token-result success", {
+          orderId: args.orderId,
+          mint: mintRes.mintAddress,
+          tokenSignature: mintRes.signature,
+        });
+      }
+
+      commitFinalSuccess(runId, args, mintRes);
+    } finally {
+      mintCompletionInFlightRef.current = false;
+    }
   }
 
   /**

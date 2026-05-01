@@ -49,6 +49,10 @@ type FinalSuccessResult = {
   cluster: "devnet" | "mainnet";
 };
 
+type TerminalSnapshot =
+  | { kind: "success"; result: FinalSuccessResult }
+  | { kind: "error"; message: string };
+
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
   const { wallet, provider, openPicker } = useWallet();
@@ -56,7 +60,7 @@ export function DetailsStep() {
   const [mintAddress, setMintAddress] = useState<string | undefined>();
   const [paymentSig, setPaymentSig] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const [finalResult, setFinalResult] = useState<FinalSuccessResult | null>(null);
+  const [terminalSnapshot, setTerminalSnapshot] = useState<TerminalSnapshot | null>(null);
   const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
   const vanityHandleRef = useRef<VanityHandle | null>(null);
   const [suffixError, setSuffixError] = useState<string | undefined>();
@@ -79,6 +83,7 @@ export function DetailsStep() {
   const activeRunIdRef = useRef(0);
   const nextRunIdRef = useRef(0);
   const hasCommittedSuccessRef = useRef(false);
+  const hasCommittedErrorRef = useRef(false);
   const mintCompletionInFlightRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;

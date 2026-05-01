@@ -566,6 +566,12 @@ export function DetailsStep() {
 
       // 2. Confirming — wallet signs payment
       setStage("confirming");
+      console.info("[wizard] PAYMENT_TX_BUILD + SIGN_REQUEST", {
+        orderId: order.order_id,
+        toAddress: order.recipient_wallet,
+        amountSol: order.amount_sol,
+        cluster: state.cluster,
+      });
       const sig = await sendPayment({
         provider,
         fromAddress: wallet.address,
@@ -573,6 +579,7 @@ export function DetailsStep() {
         amountSol: order.amount_sol,
         cluster: state.cluster,
       });
+      console.info("[wizard] PAYMENT_SIGNED", { orderId: order.order_id, sig });
       setPaymentSig(sig);
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER

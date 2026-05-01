@@ -96,21 +96,44 @@ export async function sendPayment({
   );
 
   let signature: string;
-  if (provider.signAndSendTransaction) {
-    const res = await provider.signAndSendTransaction(tx);
-    signature = res.signature;
-  } else {
-    const signed = await provider.signTransaction(tx);
-    signature = await connection.sendRawTransaction(signed.serialize(), {
-      skipPreflight: false,
-    });
-  }
+  try {
+    if (provider.signAndSendTransaction) {
+      const res = await provider.signAndSendTransaction(tx);
+      signature = res.signature;
+    } else {
+      const signed = await provider.signTransaction(tx);
+      signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+      });
+    }
 
-  await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    "confirmed",
-  );
-  return signature;
+    await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      "confirmed",
+    );
+    return signature;
+  } catch (err) {
+    console.error("[mint] sendPayment failed", { cluster, rpcUrl, err });
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/User rejected|reject/i.test(msg)) {
+      throw err; // preserve original message — outer handler maps to friendly text
+    }
+    if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
+      throw new Error(
+        "Payment transaction expired before it was confirmed (network was slow). " +
+          "No charge was made — please click Try Again to send a fresh payment.",
+      );
+    }
+    if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
+      throw new Error(
+        "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
+          "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC and reload.",
+      );
+    }
+    throw new Error(
+      `Payment failed on Solana ${cluster}: ${msg}`,
+    );
+  }
 }
 
 /**

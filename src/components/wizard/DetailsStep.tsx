@@ -209,7 +209,7 @@ export function DetailsStep() {
     mintRes: Awaited<ReturnType<typeof mintToken>>,
   ) {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate success callback ignored", {
+      console.warn("[wizard] duplicate success state ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
@@ -229,7 +229,7 @@ export function DetailsStep() {
       feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
       cluster: args.cluster,
     };
-    console.info("[wizard] final success state commit", committed);
+    console.info("[wizard] final success state committed", committed);
     setTerminalSnapshot({ kind: "success", result: committed });
     setMintAddress(committed.mintAddress);
     setPaymentSig(committed.paymentSignature);
@@ -244,7 +244,7 @@ export function DetailsStep() {
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate success callback ignored", {
+      console.warn("[wizard] duplicate success state ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
@@ -263,6 +263,12 @@ export function DetailsStep() {
     }
     mintCompletionInFlightRef.current = true;
     setFlowStage(runId, "creating", "mint-started");
+    console.info("[wizard] mint started", {
+      runId,
+      orderId: args.orderId,
+      mint: args.mintKeypair.publicKey.toBase58(),
+      cluster: args.cluster,
+    });
     console.info("[wizard] MINT_TX_BUILD + SIGN_REQUEST", {
       orderId: args.orderId,
       mint: args.mintKeypair.publicKey.toBase58(),
@@ -286,6 +292,12 @@ export function DetailsStep() {
         mint: mintRes.mintAddress,
         signature: mintRes.signature,
       });
+      console.info("[wizard] mint succeeded", {
+        runId,
+        orderId: args.orderId,
+        mint: mintRes.mintAddress,
+        signature: mintRes.signature,
+      });
 
       // Devnet free-test mode mints without an order — skip backend persistence.
       if (args.orderId !== "devnet-test") {
@@ -300,6 +312,12 @@ export function DetailsStep() {
           },
         });
         console.info("[wizard] save-token-result success", {
+          orderId: args.orderId,
+          mint: mintRes.mintAddress,
+          tokenSignature: mintRes.signature,
+        });
+        console.info("[wizard] save-token-result succeeded", {
+          runId,
           orderId: args.orderId,
           mint: mintRes.mintAddress,
           tokenSignature: mintRes.signature,

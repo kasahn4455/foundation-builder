@@ -597,6 +597,7 @@ function ComingSoonRow({ title, desc }: { title: string; desc: string }) {
       </div>
     </div>
   );
+}
 
 function AuthorityCard({
   title,

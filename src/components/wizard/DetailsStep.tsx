@@ -154,7 +154,11 @@ export function DetailsStep() {
       });
       return;
     }
-    setStage((prev) => (prev === next ? prev : next));
+    setStage((prev) => {
+      if (prev === next) return prev;
+      console.info("[wizard] flow transition", { runId, from: prev, to: next, label });
+      return next;
+    });
   }
 
   function commitFinalSuccess(
@@ -500,12 +504,14 @@ export function DetailsStep() {
           orderId: refreshed.orderId,
           mint: freshMint,
         });
-        await completeMint(runId, refreshed);
-        console.info("[wizard] retry mint succeeded", {
-          orderId: refreshed.orderId,
-          paymentSignature: refreshed.paymentSignature,
-          mint: freshMint,
-        });
+        const didComplete = await completeMint(runId, refreshed);
+        if (didComplete) {
+          console.info("[wizard] retry mint succeeded", {
+            orderId: refreshed.orderId,
+            paymentSignature: refreshed.paymentSignature,
+            mint: freshMint,
+          });
+        }
       } catch (mintErr) {
         const msg = describeMintError(mintErr, !isDevnetTestRetry);
         const failurePoint =

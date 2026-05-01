@@ -316,12 +316,15 @@ export async function mintToken({
       console.error("[mint] getLatestBlockhash failed", { cluster, rpcUrl, err });
       if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
         throw new Error(
-          "Mainnet RPC is unavailable from the browser (403 from public endpoint). " +
-            "Set VITE_SOLANA_MAINNET_RPC_URL to a browser-accessible RPC and reload.",
+          "Solana mainnet RPC is unreachable from your browser. The mint transaction was not built. " +
+            "If you already paid, click Try Again — your payment is preserved and will not be re-charged.",
         );
       }
+      const reason = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `Failed to reach Solana ${cluster} RPC: ${err instanceof Error ? err.message : String(err)}`,
+        cluster === "mainnet"
+          ? `Could not reach Solana mainnet to build the mint transaction. (${reason}) Please click Try Again.`
+          : `Failed to reach Solana devnet RPC: ${reason}`,
       );
     }
   }

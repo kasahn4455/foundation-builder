@@ -287,13 +287,15 @@ export function DetailsStep() {
       // as one in the modal.
       const isDevnetTestRetry =
         pendingMint.cluster === "devnet" && pendingMint.paymentSignature === "devnet-test";
-      console.info("[wizard] retry: rebuilding mint tx only", {
+      const staleMint = pendingMint.mintKeypair.publicKey.toBase58();
+      console.info("[wizard] retry: rebuilding mint flow from scratch", {
         orderId: pendingMint.orderId,
         paymentSignature: pendingMint.paymentSignature,
-        mint: pendingMint.mintKeypair.publicKey.toBase58(),
+        staleMint,
         cluster: pendingMint.cluster,
         isDevnetTestRetry,
-        path: isDevnetTestRetry ? "retry-devnet-test-no-payment" : "retry-mint-only-no-recharge",
+        path: isDevnetTestRetry ? "retry-devnet-test-no-payment" : "retry-fresh-mint-no-recharge",
+        note: "fresh mint keypair + fresh metadata + fresh tx + fresh blockhash; payment NOT resent",
       });
       // Surface the preserved payment signature in the modal immediately so
       // the user sees it the moment retry starts (and during any subsequent
@@ -304,7 +306,7 @@ export function DetailsStep() {
         // If a previous attempt sent the payment but verifyPayment failed
         // (e.g. RPC hiccup), re-run verifyPayment first. The server is
         // idempotent for the same (order_id, signature) pair — it will NOT
-        // re-charge the user. Only after verify succeeds do we mint.
+        // re-charge the user.
         if (pendingMint.needsVerify && !isDevnetTestRetry) {
           setStage("processing");
           await verifyPayment({
@@ -315,23 +317,58 @@ export function DetailsStep() {
               cluster: pendingMint.cluster,
             },
           });
-          // Verified — clear the flag so future retries skip straight to mint.
-          const verified = { ...pendingMint, needsVerify: false };
-          setPendingMint(verified);
-          await completeMint(verified);
-        } else {
-          await completeMint(pendingMint);
         }
-        console.info("[wizard] retry mint succeeded", {
+
+        // CRITICAL — the previous mint attempt may have already created the
+        // mint account on-chain before failing (e.g. authorities check after
+        // create+initialize succeeded). Reusing that keypair would fail with
+        // "account already in use". Build a completely fresh mint:
+        //   1) brand-new mint keypair
+        //   2) brand-new off-chain metadata upload tied to the new address
+        //   3) brand-new transaction + brand-new recent blockhash
+        //      (mintToken always fetches a fresh blockhash internally)
+        // Payment state (orderId, paymentSignature) is preserved untouched —
+        // user is NOT recharged.
+        setStage("preparing");
+        const freshKeypair = await generateMintKeypairForRun();
+        const freshMint = freshKeypair.publicKey.toBase58();
+        console.info("[wizard] retry: generated fresh mint keypair", {
           orderId: pendingMint.orderId,
-          paymentSignature: pendingMint.paymentSignature,
+          staleMint,
+          freshMint,
+          regenerated: staleMint !== freshMint,
+        });
+        const prepared = await prepareMetadata(freshKeypair);
+        const refreshed = {
+          ...pendingMint,
+          mintKeypair: prepared.mintKeypair,
+          metadata: prepared.metadata,
+          needsVerify: false,
+        };
+        // Persist refreshed state BEFORE the mint tx so that if the new
+        // attempt also fails, the next retry won't try to reuse this
+        // keypair either — the next retry will regenerate again.
+        setPendingMint(refreshed);
+        console.info("[wizard] retry: building fresh mint transaction", {
+          orderId: refreshed.orderId,
+          mint: freshMint,
+        });
+        await completeMint(refreshed);
+        console.info("[wizard] retry mint succeeded", {
+          orderId: refreshed.orderId,
+          paymentSignature: refreshed.paymentSignature,
+          mint: freshMint,
         });
       } catch (mintErr) {
         const msg = describeMintError(mintErr, !isDevnetTestRetry);
+        const failurePoint =
+          (mintErr as { failurePoint?: string } | null)?.failurePoint ??
+          (mintErr instanceof Error ? mintErr.name : "unknown");
         console.error("[wizard] retry mint failed", {
           orderId: pendingMint.orderId,
           paymentSignature: pendingMint.paymentSignature,
           isDevnetTestRetry,
+          failurePoint,
           err: mintErr,
         });
         setErrorMessage(msg);

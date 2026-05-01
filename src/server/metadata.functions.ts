@@ -204,12 +204,26 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         upsert: true,
       });
     if (jsonErr) {
-      console.error("[metadata] manifest upload failed", jsonErr);
+      console.error("[metadata] manifest upload failed", {
+        mint: prefix,
+        path: manifestPath,
+        bytes: manifestBytes.byteLength,
+        err: jsonErr,
+      });
       throw new Error("Failed to upload token metadata manifest");
     }
 
+    const uri = publicUrlFor(manifestPath);
+    console.info("[metadata] upload ok", {
+      mint: prefix,
+      uri,
+      image_url: imageUrl,
+      manifestBytes: manifestBytes.byteLength,
+      elapsedMs: Date.now() - t0,
+    });
+
     return {
-      uri: publicUrlFor(manifestPath),
+      uri,
       image_url: imageUrl,
     };
   });

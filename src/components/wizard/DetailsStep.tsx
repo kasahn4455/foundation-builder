@@ -1090,7 +1090,7 @@ export function DetailsStep() {
         </button>
         <button
           onClick={handleCreate}
-          disabled={actionLocked || stage !== null}
+          disabled={actionLocked || flow.stage !== "idle"}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
           {wallet
@@ -1106,10 +1106,10 @@ export function DetailsStep() {
       <p className="text-center text-xs text-muted-foreground pt-2">24/7 Support Available</p>
 
       <CreationModal
-        open={stage !== null}
+        open={flow.stage !== "idle"}
         stage={modalStage}
-        mintAddress={finalResult?.mintAddress ?? mintAddress}
-        paymentSignature={finalResult?.paymentSignature ?? paymentSig}
+        mintAddress={finalResult?.mintAddress}
+        paymentSignature={finalResult?.paymentSignature ?? flow.paymentSignature}
         errorMessage={stableErrorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
@@ -1120,7 +1120,7 @@ export function DetailsStep() {
         onCancelVanity={() => {
           vanityHandleRef.current?.cancel();
         }}
-        onClose={() => setStage(null)}
+        onClose={() => setFlow({ stage: "idle" })}
         onRetry={handleCreate}
       />
     </div>

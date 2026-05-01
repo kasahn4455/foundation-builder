@@ -122,7 +122,29 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
     };
   }
 
-  const worker = new VanityWorker();
+  // Construct the worker defensively. Workers can be unavailable (CSP,
+  // ancient browsers, embedded webviews, content blockers) and `new Worker`
+  // throws synchronously in those cases. Surface a clean rejection rather
+  // than letting the caller's UI hang in the "preparing" state.
+  let worker: Worker;
+  try {
+    worker = new VanityWorker();
+  } catch (constructErr) {
+    const message =
+      "Custom Token Address generation is not supported in this browser. " +
+      "Disable Custom Token Address and try again, or use a desktop browser.";
+    return {
+      promise: Promise.reject(
+        Object.assign(new Error(message), {
+          reason: "error" as const,
+          attempts: 0,
+          elapsedMs: 0,
+          cause: constructErr,
+        }),
+      ),
+      cancel: () => {},
+    };
+  }
   let settled = false;
 
   const promise = new Promise<Keypair>((resolve, reject) => {

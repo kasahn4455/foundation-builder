@@ -473,8 +473,6 @@ export function DetailsStep() {
   }
 
   async function runCreation(runId: number) {
-    setFlow({ stage: "idle" });
-
     if (!wallet || !provider) {
       openPicker();
       return;
@@ -484,6 +482,13 @@ export function DetailsStep() {
       runId,
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
+    });
+    setFlow({
+      stage: "preparing",
+      paymentSignature:
+        pendingMint && pendingMint.paymentSignature !== "devnet-test"
+          ? pendingMint.paymentSignature
+          : undefined,
     });
     setFlowStage(runId, "preparing", "create-flow-start");
 

@@ -948,7 +948,7 @@ export function DetailsStep() {
     hasCommittedSuccessRef.current = false;
     hasCommittedErrorRef.current = false;
     mintCompletionInFlightRef.current = false;
-    console.info("[wizard] action lock set", { runId });
+    console.info("[wizard] create lock acquired", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
       runId,
       cluster: state.cluster,

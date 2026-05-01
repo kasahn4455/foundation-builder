@@ -116,32 +116,33 @@ export async function sendPayment({
     );
     return signature;
   } catch (err) {
-    console.error("[mint] sendPayment failed", { cluster, rpcUrl, err });
+    console.error("[mint] PAYMENT_FAILED", { cluster, rpcUrl, err });
     const msg = err instanceof Error ? err.message : String(err);
-    if (/User rejected|reject/i.test(msg)) {
-      throw err; // preserve original message — outer handler maps to friendly text
+    if (/User rejected|user denied|reject|declined|cancell?ed/i.test(msg)) {
+      throw err; // preserve original — outer handler maps to friendly text
     }
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
-        "Your payment transaction expired before the network could confirm it (Solana was slow or the wallet took too long to sign). " +
-          "No SOL was charged. Please click Try Again to send a fresh payment.",
+        cluster === "mainnet"
+          ? "Your payment expired before Solana mainnet could confirm it (the network was slow, or signing took too long). No SOL was charged. Click Try Again to send a fresh payment."
+          : "Your payment transaction expired before the network could confirm it. No SOL was charged. Please click Try Again to send a fresh payment.",
       );
     }
     if (/insufficient|0x1$|debit an account|InsufficientFundsForRent/i.test(msg)) {
       throw new Error(
         cluster === "mainnet"
-          ? "Insufficient SOL in your wallet to cover the platform fee plus Solana network costs. No charge was made — please add more SOL and try again."
+          ? "Insufficient SOL in your wallet to cover the platform fee plus Solana network fees. No charge was made. Please add more SOL to this wallet and click Try Again."
           : "Insufficient devnet SOL to cover network costs. Please fund this wallet from a devnet faucet and try again.",
       );
     }
     if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
       throw new Error(
-        "Solana mainnet RPC is unreachable from your browser. No payment was confirmed. Please reload and try again.",
+        "Solana mainnet is temporarily unreachable from your browser (the public RPC blocked the request). No payment was confirmed and no SOL was charged. Please wait a moment and click Try Again.",
       );
     }
     throw new Error(
       cluster === "mainnet"
-        ? `Payment failed on Solana mainnet: ${msg}`
+        ? `Payment failed on Solana mainnet. No SOL was charged unless your wallet shows a confirmed transfer. Details: ${msg}`
         : `Payment failed on Solana devnet: ${msg}`,
     );
   }
@@ -596,25 +597,25 @@ export async function mintToken({
       metadataUpdateAuthority: onChainUpdateAuthority,
     };
   } catch (err) {
-    console.error("[mint] mintToken failed", { cluster, failurePoint, err });
+    console.error("[mint] MINT_FAILED", { cluster, failurePoint, err });
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
       throw new Error(
         cluster === "mainnet"
-          ? "Your mint transaction expired before Solana mainnet could confirm it. Your payment is preserved — click Try Again to rebuild and resend the mint without paying again."
+          ? "Your mint transaction expired before Solana mainnet could confirm it (network was slow or signing took too long). Your payment is preserved — click Try Again to rebuild and resend the mint without paying again."
           : "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
       );
     }
     if (/insufficient|0x1$|debit an account|InsufficientFundsForRent/i.test(msg)) {
       throw new Error(
         cluster === "mainnet"
-          ? "Insufficient SOL in your wallet to cover Solana network costs for the mint transaction. Add more SOL and click Try Again — your payment is preserved."
+          ? "Insufficient SOL in your wallet to cover Solana network fees for the mint transaction (rent + signature fee). Add a small amount of SOL and click Try Again — your payment is preserved and you will not be charged again."
           : "Insufficient devnet SOL to cover the mint transaction. Fund this wallet from a devnet faucet and try again.",
       );
     }
     if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
       throw new Error(
-        "Solana mainnet RPC is unreachable from your browser. Your payment is preserved — please click Try Again.",
+        "Solana mainnet is temporarily unreachable from your browser. Your payment is preserved — please wait a moment and click Try Again. You will not be charged again.",
       );
     }
     throw err;

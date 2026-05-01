@@ -297,10 +297,13 @@ export async function mintToken({
         TOKEN_2022_PROGRAM_ID,
       ),
       // 4. Initialize the on-chain Token Metadata (name/symbol/uri + update authority).
+      //    The update authority assigned here IS the real on-chain authority.
+      //    Wallets and explorers will treat `initialUpdateAuthority` as the
+      //    sole signer that can update name/symbol/uri/additionalMetadata.
       createInitializeTokenMetadataInstruction({
         programId: TOKEN_2022_PROGRAM_ID,
         metadata: mintPk,
-        updateAuthority: payer,
+        updateAuthority: initialUpdateAuthority,
         mint: mintPk,
         mintAuthority: payer,
         name: metadata.name,

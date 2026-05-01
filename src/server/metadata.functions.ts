@@ -129,6 +129,30 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
     if (externalUrl) manifest.external_url = externalUrl;
     if (Object.keys(extensions).length > 0) manifest.extensions = extensions;
 
+    // Embed creator info in the manifest. We write it both at the top level
+    // (`creator`) and inside `extensions.creator` so wallets/explorers that
+    // look in either place can surface it. We also emit a Metaplex-shaped
+    // `properties.creators[]` entry when an address is provided — this is
+    // the legacy structure marketplaces still parse, even for Token-2022
+    // mints, and serves as the closest correct mapping since the on-chain
+    // TokenMetadata extension itself does not store creators.
+    if (data.creator) {
+      const creatorEntry: Record<string, string> = { name: data.creator.name };
+      if (data.creator.site) creatorEntry.site = data.creator.site;
+      if (data.creator.address) creatorEntry.address = data.creator.address;
+      manifest.creator = creatorEntry;
+      const ext = (manifest.extensions as Record<string, unknown> | undefined) ?? {};
+      ext.creator = creatorEntry;
+      manifest.extensions = ext;
+      if (data.creator.address) {
+        const props = (manifest.properties as Record<string, unknown> | undefined) ?? {};
+        props.creators = [
+          { address: data.creator.address, share: 100, verified: false },
+        ];
+        manifest.properties = props;
+      }
+    }
+
     const manifestPath = `${prefix}/metadata.json`;
     const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2), "utf8");
     const { error: jsonErr } = await supabaseAdmin.storage

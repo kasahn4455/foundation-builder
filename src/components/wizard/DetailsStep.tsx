@@ -491,7 +491,16 @@ export function DetailsStep() {
         caseSensitive: true,
         maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
         maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
-        onProgress: (p) => setVanityProgress(p),
+        onProgress: (p) => {
+          if (!isActiveRun(runId) || hasTerminalCommit()) {
+            console.warn("[wizard] duplicate render-trigger path ignored", {
+              runId,
+              reason: "stale-vanity-progress",
+            });
+            return;
+          }
+          setVanityProgress(p);
+        },
       });
       vanityHandleRef.current = handle;
       try {
@@ -499,7 +508,9 @@ export function DetailsStep() {
         return kp;
       } finally {
         vanityHandleRef.current = null;
-        setVanityProgress(null);
+        if (isActiveRun(runId) && !hasTerminalCommit()) {
+          setVanityProgress(null);
+        }
       }
     };
 

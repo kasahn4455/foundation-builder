@@ -115,13 +115,13 @@ function recomputeTotal(
     (n, k) => n + (selected[k] ? 1 : 0),
     0,
   );
-  const addon = round9(addonCount * 0.1);
+  const addon = round9(addonCount * ADDON_FEE_SOL);
   const total = round9(base + addon);
   return { addon, total };
 }
 
 function round9(n: number): number {
-  return Math.round(n * 1e9) / 1e9;
+  return sharedRound9(n);
 }
 
 export const createOrder = createServerFn({ method: "POST" })

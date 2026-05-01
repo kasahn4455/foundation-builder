@@ -11,7 +11,7 @@ import {
   getWalletBalanceSol,
   generateMintKeypair,
 } from "@/lib/solana/mint";
-import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
+import { computeAddonFee, computeTotalFee, BASE_FEE_SOL } from "@/lib/pricing";
 import {
   grindVanityMintKeypair,
   validateVanitySuffix,
@@ -442,7 +442,7 @@ export function DetailsStep() {
             decimals: state.decimals,
             initial_supply: supplyDigits,
             cluster: state.cluster,
-            base_fee_sol: 0.3,
+            base_fee_sol: BASE_FEE_SOL,
             addon_fee_sol: computeAddonFee(selected),
             selected_options: selected,
             total_fee_sol: computeTotalFee(selected),

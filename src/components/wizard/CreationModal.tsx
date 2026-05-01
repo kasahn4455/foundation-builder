@@ -241,14 +241,20 @@ export function CreationModal({
             <div className="mx-auto h-16 w-16 rounded-full grid place-items-center bg-destructive/15 border border-destructive/30">
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
-            <h3 className="mt-5 text-2xl font-semibold tracking-tight">Mint failed</h3>
+            <h3 className="mt-5 text-2xl font-semibold tracking-tight">
+              {paymentSignature ? "Mint failed after payment" : "Mint failed"}
+            </h3>
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-              {errorMessage || "Something went wrong while creating your token. Please try again."}
+              {paymentSignature
+                ? errorMessage ||
+                  "Your payment was confirmed on-chain but the mint transaction did not complete. Your payment is preserved — clicking Retry Mint will not charge you again."
+                : errorMessage ||
+                  "Something went wrong before any payment was made. Please try again."}
             </p>
             {paymentSignature && (
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-left">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Payment signature (preserved)
+                  Payment signature (preserved — you will not be charged again)
                 </div>
                 <code className="mt-1 block text-xs font-mono text-foreground/90 break-all">
                   {paymentSignature}
@@ -271,7 +277,7 @@ export function CreationModal({
                 onClick={onRetry}
                 className="btn-primary inline-flex items-center justify-center rounded-full bg-gradient-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-glow"
               >
-                Try Again
+                {paymentSignature ? "Retry Mint (no extra charge)" : "Try Again"}
               </button>
             </div>
           </div>

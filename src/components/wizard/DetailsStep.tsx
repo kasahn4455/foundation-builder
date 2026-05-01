@@ -203,6 +203,9 @@ export function DetailsStep() {
       // DEVNET FREE TEST MODE: skip order creation, payment, and verification.
       // Mint directly so devs can test the full minting path without paying.
       if (isDevnetFreeMode) {
+        // Upload off-chain JSON metadata first so the on-chain `uri` is real.
+        setStage("preparing");
+        const prepared = await prepareMetadata();
         const devMintAttempt = {
           orderId: "devnet-test",
           paymentSignature: "devnet-test",
@@ -212,7 +215,10 @@ export function DetailsStep() {
           initialSupply: supplyDigits,
           revokeFreeze: state.revokeFreeze,
           revokeMint: state.revokeMint,
-        } as const;
+          revokeUpdate: state.revokeUpdate,
+          mintKeypair: prepared.mintKeypair,
+          metadata: prepared.metadata,
+        };
         setPendingMint(devMintAttempt);
         try {
           await completeMint(devMintAttempt);

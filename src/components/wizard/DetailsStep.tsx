@@ -49,6 +49,21 @@ export function DetailsStep() {
   const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
   const vanityHandleRef = useRef<VanityHandle | null>(null);
   const [suffixError, setSuffixError] = useState<string | undefined>();
+  /**
+   * Synchronous re-entry guard for the Create Token click handler.
+   *
+   * `disabled={stage !== null && ...}` on the button is NOT enough on its own:
+   * `runCreation` does async work (balance preflight, vanity grind) BEFORE the
+   * first `setStage(...)` call, so the button stays visually enabled for that
+   * window. A fast double-click — or a duplicate handler invocation from any
+   * source — would otherwise race two `createOrder` + `sendPayment` calls and
+   * trigger TWO Phantom payment popups for the same intent.
+   *
+   * A useRef flips synchronously inside the same tick as the click, so the
+   * second invocation bails immediately. Released in `finally` so retries and
+   * subsequent attempts still work.
+   */
+  const isRunningRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
     paymentSignature: string;

@@ -582,8 +582,7 @@ export function DetailsStep() {
           failurePoint,
           err: mintErr,
         });
-        setErrorMessage(msg);
-        setFlowStage(runId, "error", "retry-mint-failed");
+        commitFinalError(runId, msg, "retry-mint-failed");
       }
       return;
     }
@@ -593,13 +592,11 @@ export function DetailsStep() {
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
     if (!state.tokenName.trim() || !state.tokenSymbol.trim()) {
-      setErrorMessage("Token name and symbol are required.");
-      setFlowStage(runId, "error", "validation-name-symbol");
+      commitFinalError(runId, "Token name and symbol are required.", "validation-name-symbol");
       return;
     }
     if (!supplyDigits || BigInt(supplyDigits) <= 0n) {
-      setErrorMessage("Total supply must be greater than zero.");
-      setFlowStage(runId, "error", "validation-supply");
+      commitFinalError(runId, "Total supply must be greater than zero.", "validation-supply");
       return;
     }
 

@@ -73,6 +73,26 @@ export function DetailsStep() {
     };
   }, []);
 
+  /**
+   * Map a raw mint-step error to user-facing text. Wallet-rejection during
+   * the mint signature (AFTER payment was already taken) is the highest-risk
+   * confusing case: the user has paid and now sees a raw "User rejected"
+   * string and worries about a double-charge. Spell out that the payment is
+   * preserved and Retry will not charge again.
+   */
+  function describeMintError(err: unknown, hasPreservedPayment: boolean): string {
+    const msg = err instanceof Error ? err.message : "Mint transaction failed";
+    const isWalletRejection =
+      /user rejected|user denied|request rejected|rejected the request|cancell?ed|declined/i.test(msg) ||
+      (err as { code?: number } | null)?.code === 4001;
+    if (isWalletRejection) {
+      return hasPreservedPayment
+        ? "You cancelled the mint signature in your wallet. Your payment is preserved on-chain — click Retry Mint to sign again. You will not be charged again."
+        : "You cancelled the mint signature in your wallet. No charge was made — click Try Again to retry.";
+    }
+    return msg;
+  }
+
   async function completeMint(args: NonNullable<typeof pendingMint>) {
     setStage("creating");
     const mintRes = await mintToken({
@@ -279,7 +299,7 @@ export function DetailsStep() {
           paymentSignature: pendingMint.paymentSignature,
         });
       } catch (mintErr) {
-        const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        const msg = describeMintError(mintErr, !isDevnetTestRetry);
         console.error("[wizard] retry mint failed", {
           orderId: pendingMint.orderId,
           paymentSignature: pendingMint.paymentSignature,
@@ -437,7 +457,7 @@ export function DetailsStep() {
         try {
           await completeMint(devMintAttempt);
         } catch (mintErr) {
-          const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+          const msg = describeMintError(mintErr, false);
           setErrorMessage(msg);
           setStage("error");
         }
@@ -515,7 +535,7 @@ export function DetailsStep() {
         // The error modal will show the canonical "Payment received. Token mint failed."
         // message + the preserved payment signature, and Retry will re-run completeMint only
         // (see runCreation()'s `if (pendingMint)` guard).
-        const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        const msg = describeMintError(mintErr, true);
         console.error("[wizard] PAYMENT_OK_MINT_FAILED — payment preserved, retry will not recharge", {
           orderId: mintAttempt.orderId,
           paymentSignature: mintAttempt.paymentSignature,

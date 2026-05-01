@@ -145,7 +145,15 @@ export function CreationModal({
 
         {/* Progress states */}
         {stage !== "success" && stage !== "error" && (
-          <ProgressBody stage={stage} tokenName={tokenName} tokenSymbol={tokenSymbol} totalSol={totalSol} />
+          <ProgressBody
+            stage={stage}
+            tokenName={tokenName}
+            tokenSymbol={tokenSymbol}
+            totalSol={totalSol}
+            vanityProgress={vanityProgress}
+            vanitySuffix={vanitySuffix}
+            onCancelVanity={onCancelVanity}
+          />
         )}
 
         {/* Success */}

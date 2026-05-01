@@ -493,7 +493,16 @@ export function DetailsStep() {
         await completeMint(mintAttempt);
       } catch (mintErr) {
         // Payment succeeded but mint failed — preserve retry context and do NOT re-charge.
+        // The error modal will show the canonical "Payment received. Token mint failed."
+        // message + the preserved payment signature, and Retry will re-run completeMint only.
         const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        console.error("[wizard] payment OK but mint failed — payment preserved for retry", {
+          orderId: mintAttempt.orderId,
+          paymentSignature: mintAttempt.paymentSignature,
+          mint: mintAttempt.mintKeypair.publicKey.toBase58(),
+          cluster: mintAttempt.cluster,
+          err: mintErr,
+        });
         setErrorMessage(msg);
         setStage("error");
       }

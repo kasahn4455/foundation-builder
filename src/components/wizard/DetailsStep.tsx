@@ -535,7 +535,7 @@ export function DetailsStep() {
         // The error modal will show the canonical "Payment received. Token mint failed."
         // message + the preserved payment signature, and Retry will re-run completeMint only
         // (see runCreation()'s `if (pendingMint)` guard).
-        const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+        const msg = describeMintError(mintErr, true);
         console.error("[wizard] PAYMENT_OK_MINT_FAILED — payment preserved, retry will not recharge", {
           orderId: mintAttempt.orderId,
           paymentSignature: mintAttempt.paymentSignature,

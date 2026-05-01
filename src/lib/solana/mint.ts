@@ -362,18 +362,29 @@ export async function mintToken({
       );
     }
 
+    // Revoke the metadata update authority in the SAME transaction so it
+    // either succeeds atomically with mint creation or fails together —
+    // there is never a window where the wallet appears to hold the authority
+    // but the user expected it revoked.
     if (revokeUpdate) {
-      // Real revoke: nulls the metadata update authority on the on-chain
-      // TokenMetadata extension. After this, no one — not even the original
-      // payer — can change name/symbol/uri/additionalMetadata.
+      console.info("[mint] appending update-authority revoke instruction", {
+        mint: mintPk.toBase58(),
+        oldAuthority: initialUpdateAuthority.toBase58(),
+        newAuthority: null,
+      });
       tx.add(
         createUpdateMetadataAuthorityInstruction({
           programId: TOKEN_2022_PROGRAM_ID,
           metadata: mintPk,
-          oldAuthority: payer,
+          oldAuthority: initialUpdateAuthority,
           newAuthority: null,
         }),
       );
+    } else {
+      console.info("[mint] keeping update authority on connected wallet", {
+        mint: mintPk.toBase58(),
+        updateAuthority: initialUpdateAuthority.toBase58(),
+      });
     }
 
     if (revokeMint) {

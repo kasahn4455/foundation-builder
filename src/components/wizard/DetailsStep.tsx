@@ -895,6 +895,7 @@ export function DetailsStep() {
     isRunningRef.current = true;
     setActionLocked(true);
     hasCommittedSuccessRef.current = false;
+    hasCommittedErrorRef.current = false;
     mintCompletionInFlightRef.current = false;
     console.info("[wizard] action lock set", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
@@ -909,6 +910,9 @@ export function DetailsStep() {
       console.info("[wizard] CREATE_TOKEN_HANDLER_END", { runId });
     });
   }
+
+  const finalResult = terminalSnapshot?.kind === "success" ? terminalSnapshot.result : null;
+  const stableErrorMessage = terminalSnapshot?.kind === "error" ? terminalSnapshot.message : errorMessage;
 
   return (
     <div className="space-y-6">
@@ -1059,7 +1063,7 @@ export function DetailsStep() {
         stage={stage ?? "preparing"}
         mintAddress={finalResult?.mintAddress ?? mintAddress}
         paymentSignature={finalResult?.paymentSignature ?? paymentSig}
-        errorMessage={errorMessage}
+        errorMessage={stableErrorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
         totalSol={finalResult?.feePaid ?? totalPrice}

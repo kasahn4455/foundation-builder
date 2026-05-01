@@ -100,6 +100,15 @@ export async function sendPayment({
 
   let signature: string;
   try {
+    // One-and-only-one wallet popup per call. The `payment:wallet-popup`
+    // counter (window-scoped) makes a duplicate Phantom approval immediately
+    // visible in the live console as `[mint] PAYMENT_WALLET_POPUP n=2`.
+    const popupN =
+      typeof window !== "undefined"
+        ? ((window as unknown as { __payment_popup_n?: number }).__payment_popup_n =
+            ((window as unknown as { __payment_popup_n?: number }).__payment_popup_n ?? 0) + 1)
+        : 1;
+    console.info("[mint] PAYMENT_WALLET_POPUP", { n: popupN, lamports, cluster });
     if (provider.signAndSendTransaction) {
       const res = await provider.signAndSendTransaction(tx);
       signature = res.signature;
@@ -109,6 +118,7 @@ export async function sendPayment({
         skipPreflight: false,
       });
     }
+    console.info("[mint] PAYMENT_WALLET_RETURNED", { n: popupN, signature });
 
     await connection.confirmTransaction(
       { signature, blockhash, lastValidBlockHeight },
@@ -499,6 +509,15 @@ export async function mintToken({
     tx.partialSign(mintKeypair);
 
     let signature: string;
+    // Same single-popup counter pattern as the payment step. A duplicate
+    // mint approval would surface in the live console as
+    // `[mint] MINT_WALLET_POPUP n=2`.
+    const mintPopupN =
+      typeof window !== "undefined"
+        ? ((window as unknown as { __mint_popup_n?: number }).__mint_popup_n =
+            ((window as unknown as { __mint_popup_n?: number }).__mint_popup_n ?? 0) + 1)
+        : 1;
+    console.info("[mint] MINT_WALLET_POPUP", { n: mintPopupN, mint: mintPk.toBase58(), cluster });
     if (provider.signTransaction) {
       failurePoint = "signTransaction";
       const signed = await provider.signTransaction(tx);
@@ -515,6 +534,7 @@ export async function mintToken({
     } else {
       throw new Error("Connected wallet does not support Solana transaction signing.");
     }
+    console.info("[mint] MINT_WALLET_RETURNED", { n: mintPopupN, signature });
 
     failurePoint = "confirmTransaction";
     await connection.confirmTransaction(

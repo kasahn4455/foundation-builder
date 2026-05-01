@@ -95,11 +95,26 @@ function getRpc(cluster: "devnet" | "mainnet"): string {
 
 // Re-derive total from selected_options server-side. This is the authoritative
 // fee model — never trust the client's claimed total_fee_sol blindly.
+//
+// IMPORTANT: PAID_ADDON_KEYS must stay in lock-step with `ADDON_KEYS` in
+// src/lib/pricing.ts. `customAddress` is intentionally excluded — vanity
+// mint-address grinding isn't implemented yet (marked "Coming Soon" in the
+// UI), so we do not charge for it even if the flag is true on the order.
+const PAID_ADDON_KEYS = [
+  "modifyCreator",
+  "revokeFreeze",
+  "revokeMint",
+  "revokeUpdate",
+] as const satisfies readonly (keyof z.infer<typeof SelectedOptionsSchema>)[];
+
 function recomputeTotal(
   base: number,
   selected: z.infer<typeof SelectedOptionsSchema>,
 ): { addon: number; total: number } {
-  const addonCount = Object.values(selected).filter(Boolean).length;
+  const addonCount = PAID_ADDON_KEYS.reduce(
+    (n, k) => n + (selected[k] ? 1 : 0),
+    0,
+  );
   const addon = round9(addonCount * 0.1);
   const total = round9(base + addon);
   return { addon, total };

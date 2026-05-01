@@ -1,4 +1,9 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  BASE_FEE_SOL as PRICING_BASE_FEE_SOL,
+  ADDON_FEE_SOL as PRICING_ADDON_FEE_SOL,
+  computeTotalFee,
+} from "@/lib/pricing";
 
 export type Cluster = "devnet" | "mainnet";
 
@@ -60,8 +65,11 @@ type Ctx = {
 
 const WizardCtx = createContext<Ctx | null>(null);
 
-export const BASE_FEE_SOL = 0.3;
-export const ADDON_FEE_SOL = 0.1;
+// Re-export from the single source of truth (src/lib/pricing.ts) so any other
+// component that imports BASE_FEE_SOL/ADDON_FEE_SOL from here keeps working,
+// but pricing math is never duplicated.
+export const BASE_FEE_SOL = PRICING_BASE_FEE_SOL;
+export const ADDON_FEE_SOL = PRICING_ADDON_FEE_SOL;
 
 export function WizardProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WizardState>(initial);
@@ -70,13 +78,16 @@ export function WizardProvider({ children }: { children: ReactNode }) {
   const set = <K extends keyof WizardState>(k: K, v: WizardState[K]) =>
     setState((s) => ({ ...s, [k]: v }));
 
-  const totalPrice =
-    BASE_FEE_SOL +
-    (state.modifyCreator ? ADDON_FEE_SOL : 0) +
-    (state.customAddress ? ADDON_FEE_SOL : 0) +
-    (state.revokeFreeze ? ADDON_FEE_SOL : 0) +
-    (state.revokeMint ? ADDON_FEE_SOL : 0) +
-    (state.revokeUpdate ? ADDON_FEE_SOL : 0);
+  // SINGLE SOURCE OF TRUTH for the user-visible total. Backend recomputes the
+  // exact same number from `selected_options` in createOrder/recomputeTotal —
+  // any drift here would surface as a "Pricing mismatch" server error.
+  const totalPrice = computeTotalFee({
+    modifyCreator: state.modifyCreator,
+    customAddress: state.customAddress,
+    revokeFreeze: state.revokeFreeze,
+    revokeMint: state.revokeMint,
+    revokeUpdate: state.revokeUpdate,
+  });
 
   return (
     <WizardCtx.Provider value={{ state, set, step, setStep, totalPrice }}>

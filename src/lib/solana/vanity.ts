@@ -155,6 +155,9 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
   // Hoisted so cancel() (outside the Promise executor) can reject the
   // outstanding promise immediately when the user/unmount asks to stop.
   let rejectOuter: ((err: unknown) => void) | null = null;
+  // Track the last reported worker progress so the watchdog can surface a
+  // truthful "stuck after N attempts / Ms" message instead of "0 attempts".
+  let lastProgress: VanityProgress = { attempts: 0, elapsedMs: 0 };
 
   const clearWatchdog = () => {
     if (watchdog) {
@@ -204,7 +207,8 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
         | { type: "error"; message: string };
 
       if (msg.type === "progress") {
-        opts.onProgress?.({ attempts: msg.attempts, elapsedMs: msg.elapsedMs });
+        lastProgress = { attempts: msg.attempts, elapsedMs: msg.elapsedMs };
+        opts.onProgress?.(lastProgress);
         return;
       }
       if (msg.type === "found") {
@@ -271,8 +275,13 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
       maxElapsedMs,
     });
 
-    // Arm watchdog AFTER start so it measures from grind start.
-    watchdog = setTimeout(() => failTimeout(0, watchdogMs), watchdogMs);
+    // Arm watchdog AFTER start so it measures from grind start. Use the
+    // last reported progress so the surfaced message reflects reality
+    // ("stuck after N attempts / X seconds") instead of "0 attempts".
+    watchdog = setTimeout(
+      () => failTimeout(lastProgress.attempts, Math.max(lastProgress.elapsedMs, watchdogMs)),
+      watchdogMs,
+    );
   });
 
   return {

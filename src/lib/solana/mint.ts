@@ -194,16 +194,39 @@ export async function mintToken({
     TOKEN_2022_PROGRAM_ID,
   );
 
+  // ---------------------------------------------------------------------------
+  // Update-authority decision (single source of truth).
+  //
+  // The metadata update authority is set ONCE here, explicitly, and then
+  // (optionally) revoked in the same atomic transaction. There is no other
+  // place in the codebase that decides this — the wizard's `revokeUpdate`
+  // flag flows directly into the on-chain instructions below.
+  //
+  //   revokeUpdate=false → updateAuthority stays as the connected wallet
+  //   revokeUpdate=true  → updateAuthority is set to null after init
+  // ---------------------------------------------------------------------------
+  const initialUpdateAuthority: PublicKey = payer;
+  const finalUpdateAuthority: PublicKey | null = revokeUpdate ? null : payer;
+  console.info("[mint] metadata update-authority plan", {
+    mint: mintPk.toBase58(),
+    initial: initialUpdateAuthority.toBase58(),
+    final: finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null,
+    revokeUpdate,
+  });
+
   // Build the on-chain TokenMetadata struct so we can size the mint account
   // correctly. additionalMetadata is intentionally empty — socials live in
   // the off-chain JSON to keep the on-chain footprint (and tx size) small.
+  // NOTE: size is computed from the INITIAL authority. Revocation later in
+  // the same tx swaps the authority pubkey for the all-zero pubkey, which
+  // is the same on-disk size, so this stays accurate.
   const tokenMetadata: TokenMetadata = {
     mint: mintPk,
     name: metadata.name,
     symbol: metadata.symbol,
     uri: metadata.uri,
     additionalMetadata: [],
-    updateAuthority: payer,
+    updateAuthority: initialUpdateAuthority,
   };
 
   // Mint account size = base mint (with extensions) + tokenMetadata extension

@@ -457,7 +457,7 @@ export function DetailsStep() {
         try {
           await completeMint(devMintAttempt);
         } catch (mintErr) {
-          const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
+          const msg = describeMintError(mintErr, false);
           setErrorMessage(msg);
           setStage("error");
         }

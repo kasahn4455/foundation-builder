@@ -146,10 +146,54 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
     };
   }
   let settled = false;
+  // Watchdog: if the worker stops reporting progress past maxElapsedMs + grace,
+  // assume it's stuck (e.g. tab throttled, mobile suspended) and force-fail
+  // instead of leaving the wizard's "preparing" stage hanging forever.
+  const maxElapsedMs = opts.maxElapsedMs ?? DEFAULT_MAX_ELAPSED_MS;
+  const watchdogMs = maxElapsedMs + 15_000;
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
+  // Hoisted so cancel() (outside the Promise executor) can reject the
+  // outstanding promise immediately when the user/unmount asks to stop.
+  let rejectOuter: ((err: unknown) => void) | null = null;
+
+  const clearWatchdog = () => {
+    if (watchdog) {
+      clearTimeout(watchdog);
+      watchdog = null;
+    }
+  };
+  const terminateWorker = () => {
+    try {
+      worker.terminate();
+    } catch {
+      /* already terminated */
+    }
+  };
 
   const promise = new Promise<Keypair>((resolve, reject) => {
+    rejectOuter = reject;
     const cleanup = () => {
-      worker.terminate();
+      clearWatchdog();
+      terminateWorker();
+    };
+
+    const failTimeout = (attempts: number, elapsedMs: number) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const onMobile = isLikelyMobile();
+      const human =
+        `Could not find a matching address within the time limit (${Math.round(elapsedMs / 1000)}s, ${attempts.toLocaleString()} attempts). ` +
+        (onMobile
+          ? "Mobile devices have less compute power — try a shorter suffix (1–2 characters works best on phones)."
+          : "Try a shorter suffix.");
+      reject(
+        Object.assign(new Error(human), {
+          reason: "timeout" as const,
+          attempts,
+          elapsedMs,
+        }),
+      );
     };
 
     worker.onmessage = (ev: MessageEvent) => {
@@ -175,9 +219,10 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
         if (settled) return;
         settled = true;
         cleanup();
+        const onMobile = isLikelyMobile();
         const human =
           msg.reason === "timeout"
-            ? `Could not find a matching address within the time limit (${Math.round(msg.elapsedMs / 1000)}s, ${msg.attempts.toLocaleString()} attempts). Try a shorter suffix.`
+            ? `Could not find a matching address within the time limit (${Math.round(msg.elapsedMs / 1000)}s, ${msg.attempts.toLocaleString()} attempts). ${onMobile ? "Mobile devices are slower — try a shorter suffix (1–2 characters)." : "Try a shorter suffix."}`
             : msg.reason === "exhausted"
               ? `Could not find a matching address within ${msg.attempts.toLocaleString()} attempts. Try a shorter suffix.`
               : "Address generation was cancelled.";
@@ -210,7 +255,7 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
       settled = true;
       cleanup();
       reject(
-        Object.assign(new Error(ev.message || "Vanity worker crashed"), {
+        Object.assign(new Error(ev.message || "Vanity address generator crashed unexpectedly. Please try again or disable Custom Token Address."), {
           reason: "error",
           attempts: 0,
           elapsedMs: 0,
@@ -223,19 +268,31 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
       suffix: validation.suffix,
       caseSensitive: opts.caseSensitive ?? true,
       maxAttempts: opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
-      maxElapsedMs: opts.maxElapsedMs ?? DEFAULT_MAX_ELAPSED_MS,
+      maxElapsedMs,
     });
+
+    // Arm watchdog AFTER start so it measures from grind start.
+    watchdog = setTimeout(() => failTimeout(0, watchdogMs), watchdogMs);
   });
 
   return {
     promise,
     cancel: () => {
       if (settled) return;
-      try {
-        worker.postMessage({ type: "cancel" });
-      } catch {
-        /* worker may already be terminated */
-      }
+      settled = true;
+      // Hard-stop the worker immediately and reject the outstanding promise on
+      // the same tick. Do NOT wait for the worker to acknowledge a "cancel"
+      // message — on slow mobile devices that can take seconds, leaving the
+      // wizard stuck in "preparing".
+      clearWatchdog();
+      terminateWorker();
+      rejectOuter?.(
+        Object.assign(new Error("Address generation was cancelled."), {
+          reason: "cancelled" as const,
+          attempts: 0,
+          elapsedMs: 0,
+        }),
+      );
     },
   };
 }

@@ -134,7 +134,9 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
           mime: data.image_mime,
           err: imgErr,
         });
-        throw new Error("Failed to upload token logo");
+        throw new Error(
+          `Failed to upload token logo to storage: ${imgErr.message || "unknown storage error"}`,
+        );
       }
       imageUrl = publicUrlFor(imagePath);
       console.info("[metadata] image uploaded", {
@@ -210,7 +212,9 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         bytes: manifestBytes.byteLength,
         err: jsonErr,
       });
-      throw new Error("Failed to upload token metadata manifest");
+      throw new Error(
+        `Failed to upload token metadata manifest: ${jsonErr.message || "unknown storage error"}`,
+      );
     }
 
     const uri = publicUrlFor(manifestPath);

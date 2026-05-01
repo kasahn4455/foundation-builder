@@ -404,6 +404,16 @@ export function DetailsStep() {
         setStage("error");
       }
     } catch (err) {
+      // Vanity grinder cancellation is a deliberate user action — close the
+      // modal cleanly instead of showing the "Mint failed" error screen. No
+      // order/payment exists yet at this point because grinding runs first.
+      const reason = (err as { reason?: string } | null)?.reason;
+      if (reason === "cancelled") {
+        console.info("[wizard] vanity search cancelled by user");
+        setStage(null);
+        setVanityProgress(null);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Something went wrong";
       // Map common wallet rejections to a friendlier message
       const friendly = /User rejected|reject/i.test(msg)

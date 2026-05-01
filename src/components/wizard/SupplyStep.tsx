@@ -31,7 +31,7 @@ export function SupplyStep() {
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium">Token Decimals</label>
-          <span className="text-xs text-muted-foreground">Solana Standard: 9</span>
+          <span className="text-xs text-muted-foreground">Allowed: 0–9 · Solana standard: 9</span>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -43,15 +43,17 @@ export function SupplyStep() {
           </button>
           <input
             type="number"
+            min={0}
+            max={9}
             value={state.decimals}
             onChange={(e) => {
-              const n = Math.max(0, Math.min(18, Number(e.target.value) || 0));
+              const n = Math.max(0, Math.min(9, Number(e.target.value) || 0));
               set("decimals", n);
             }}
             className="input-dark text-center text-lg font-semibold"
           />
           <button
-            onClick={() => set("decimals", Math.min(18, state.decimals + 1))}
+            onClick={() => set("decimals", Math.min(9, state.decimals + 1))}
             className="h-12 w-12 rounded-xl border border-border bg-muted/40 grid place-items-center hover:bg-muted transition"
             aria-label="Increase"
           >
@@ -59,14 +61,14 @@ export function SupplyStep() {
           </button>
         </div>
         <p className="helper mt-2">
-          Decimals determine the divisibility of your token. 9 decimals is the Solana standard for most tokens.
+          Decimals determine the divisibility of your token. 9 decimals is the Solana standard for most tokens. Allowed range: 0–9.
         </p>
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium">Total Supply</label>
-          <span className="text-xs text-muted-foreground">Based on {state.decimals} decimals</span>
+          <span className="text-xs text-muted-foreground">Whole number of tokens</span>
         </div>
         <input
           type="text"
@@ -77,9 +79,10 @@ export function SupplyStep() {
           className="input-dark"
         />
         <p className="helper mt-2">
-          Total supply with decimals:{" "}
+          Enter the total number of tokens as a whole number (no decimal point).{" "}
           <span className="text-success font-semibold">{formatted}</span> tokens
           {magnitude && <span className="text-muted-foreground"> ({magnitude})</span>}
+          . Token divisibility is controlled separately by the Decimals setting above.
         </p>
       </div>
 

@@ -276,6 +276,29 @@ export function DetailsStep() {
       return;
     }
 
+    // Hoisted so BOTH the first-attempt path AND the retry path can build a
+    // fresh mint keypair (random or vanity-grinded) on demand.
+    const onMobile = isLikelyMobile();
+    const generateMintKeypairForRun = async (): Promise<Keypair> => {
+      if (!state.customAddress) return generateMintKeypair();
+      setVanityProgress({ attempts: 0, elapsedMs: 0 });
+      const handle = grindVanityMintKeypair({
+        suffix: state.customAddressSuffix.trim(),
+        caseSensitive: true,
+        maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
+        maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
+        onProgress: (p) => setVanityProgress(p),
+      });
+      vanityHandleRef.current = handle;
+      try {
+        const kp = await handle.promise;
+        return kp;
+      } finally {
+        vanityHandleRef.current = null;
+        setVanityProgress(null);
+      }
+    };
+
     // RETRY GUARD — if a previous attempt already paid + verified but the mint
     // tx failed, `pendingMint` is preserved. Retrying re-runs ONLY the mint
     // step (completeMint), never createOrder/sendPayment/verifyPayment, so

@@ -372,7 +372,7 @@ export function DetailsStep() {
           setErrorMessage(
             isDevnetFreeMode
               ? `Insufficient devnet SOL. Fund this wallet with devnet SOL from a faucet before minting. (Need ~${requiredSol.toFixed(3)} SOL, balance ${balanceSol.toFixed(4)} SOL.)`
-              : `Insufficient SOL. This mint costs ${totalPrice.toFixed(2)} SOL platform fee + ~${NETWORK_BUFFER_SOL.toFixed(2)} SOL network costs (~${requiredSol.toFixed(2)} SOL total). Your wallet has ${balanceSol.toFixed(4)} SOL — please add at least ${shortBy} SOL and try again.`,
+              : `Insufficient SOL on Solana mainnet. This launch needs ${totalPrice.toFixed(2)} SOL platform fee + ~${NETWORK_BUFFER_SOL.toFixed(2)} SOL for Solana network costs (~${requiredSol.toFixed(2)} SOL total). Your wallet currently has ${balanceSol.toFixed(4)} SOL — add at least ${shortBy} more SOL and try again. No charge has been made.`,
           );
           setStage("error");
           return;
@@ -384,8 +384,8 @@ export function DetailsStep() {
           // we can't confirm their balance — surface the RPC failure clearly.
           const reason = balErr instanceof Error ? balErr.message : String(balErr);
           setErrorMessage(
-            `Could not check your wallet balance on Solana mainnet RPC. ${reason} ` +
-              `Please reload and try again, or contact support if this persists.`,
+            `Could not reach Solana mainnet to check your wallet balance, so the launch was stopped before any payment was made. ` +
+              `Please check your connection and try again. If this keeps happening, the mainnet RPC may be temporarily unavailable. (Details: ${reason})`,
           );
           setStage("error");
           return;

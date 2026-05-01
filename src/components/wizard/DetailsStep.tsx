@@ -617,15 +617,15 @@ export function DetailsStep() {
     if (state.customAddress) {
       const v = validateVanitySuffix(state.customAddressSuffix);
       if (!v.ok) {
-        setErrorMessage(`Custom Token Address: ${v.reason}`);
-        setFlowStage(runId, "error", "validation-vanity-suffix");
+        commitFinalError(runId, `Custom Token Address: ${v.reason}`, "validation-vanity-suffix");
         return;
       }
       if (v.suffix.length > effectiveMaxSuffix) {
-        setErrorMessage(
+        commitFinalError(
+          runId,
           `Custom Token Address: on mobile please use ${effectiveMaxSuffix} characters or fewer (longer suffixes can take too long on phones).`,
+          "validation-vanity-mobile-length",
         );
-        setFlowStage(runId, "error", "validation-vanity-mobile-length");
         return;
       }
     }
@@ -652,12 +652,13 @@ export function DetailsStep() {
         });
         if (balanceSol < requiredSol) {
           const shortBy = (requiredSol - balanceSol).toFixed(4);
-          setErrorMessage(
+          commitFinalError(
+            runId,
             isDevnetFreeMode
               ? `Insufficient devnet SOL. Fund this wallet with devnet SOL from a faucet before minting. (Need ~${requiredSol.toFixed(3)} SOL, balance ${balanceSol.toFixed(4)} SOL.)`
               : `Insufficient SOL on Solana mainnet. This launch needs ${totalPrice.toFixed(2)} SOL platform fee + ~${NETWORK_BUFFER_SOL.toFixed(2)} SOL for Solana network costs (~${requiredSol.toFixed(2)} SOL total). Your wallet currently has ${balanceSol.toFixed(4)} SOL — add at least ${shortBy} more SOL and try again. No charge has been made.`,
+            "balance-preflight-insufficient",
           );
-          setFlowStage(runId, "error", "balance-preflight-insufficient");
           return;
         }
       } catch (balErr) {
@@ -666,11 +667,12 @@ export function DetailsStep() {
           // On mainnet we will not let the user proceed to a real payment when
           // we can't confirm their balance — surface the RPC failure clearly.
           const reason = balErr instanceof Error ? balErr.message : String(balErr);
-          setErrorMessage(
+          commitFinalError(
+            runId,
             `Could not reach Solana mainnet to check your wallet balance, so the launch was stopped before any payment was made. ` +
               `Please check your connection and try again. If this keeps happening, the mainnet RPC may be temporarily unavailable. (Details: ${reason})`,
+            "balance-preflight-failed",
           );
-          setFlowStage(runId, "error", "balance-preflight-failed");
           return;
         }
         // Devnet: don't block the free-test flow on transient RPC hiccups.

@@ -192,14 +192,14 @@ export function DetailsStep() {
     setFlowStage(runId, "success", "final-success-commit");
   }
 
-  async function completeMint(runId: number, args: NonNullable<typeof pendingMint>) {
+  async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
     if (mintCompletionInFlightRef.current) {
       console.warn("[wizard] duplicate create attempt blocked", {
         runId,
         orderId: args.orderId,
         reason: "mint-completion-already-in-flight",
       });
-      return;
+      return false;
     }
     mintCompletionInFlightRef.current = true;
     setFlowStage(runId, "creating", "mint-started");
@@ -247,6 +247,7 @@ export function DetailsStep() {
       }
 
       commitFinalSuccess(runId, args, mintRes);
+      return true;
     } finally {
       mintCompletionInFlightRef.current = false;
     }

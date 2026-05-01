@@ -133,7 +133,7 @@ export function TokenInfoStep() {
         ) : (
           <p className="helper mt-2 flex items-center gap-1.5">
             <ImageIcon className="h-3.5 w-3.5" />
-            Your logo will be stored on IPFS and linked in your token's on-chain metadata
+            Your logo is uploaded to public storage and the HTTPS link is referenced from your token's on-chain metadata.
           </p>
         )}
       </div>

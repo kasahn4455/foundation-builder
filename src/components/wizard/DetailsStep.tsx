@@ -590,7 +590,7 @@ export function DetailsStep() {
               ? `Insufficient devnet SOL. Fund this wallet with devnet SOL from a faucet before minting. (Need ~${requiredSol.toFixed(3)} SOL, balance ${balanceSol.toFixed(4)} SOL.)`
               : `Insufficient SOL on Solana mainnet. This launch needs ${totalPrice.toFixed(2)} SOL platform fee + ~${NETWORK_BUFFER_SOL.toFixed(2)} SOL for Solana network costs (~${requiredSol.toFixed(2)} SOL total). Your wallet currently has ${balanceSol.toFixed(4)} SOL — add at least ${shortBy} more SOL and try again. No charge has been made.`,
           );
-          setStage("error");
+          setFlowStage(runId, "error", "balance-preflight-insufficient");
           return;
         }
       } catch (balErr) {
@@ -603,7 +603,7 @@ export function DetailsStep() {
             `Could not reach Solana mainnet to check your wallet balance, so the launch was stopped before any payment was made. ` +
               `Please check your connection and try again. If this keeps happening, the mainnet RPC may be temporarily unavailable. (Details: ${reason})`,
           );
-          setStage("error");
+          setFlowStage(runId, "error", "balance-preflight-failed");
           return;
         }
         // Devnet: don't block the free-test flow on transient RPC hiccups.
@@ -614,7 +614,7 @@ export function DetailsStep() {
       if (isDevnetFreeMode) {
         // Generate (or grind) the mint keypair, then upload off-chain JSON
         // metadata so the on-chain `uri` is real.
-        setStage("preparing");
+        setFlowStage(runId, "preparing", "devnet-preparing");
         const mintKeypair = await generateMintKeypairForRun();
         const prepared = await prepareMetadata(mintKeypair);
         const devMintAttempt = {
@@ -632,11 +632,11 @@ export function DetailsStep() {
         };
         setPendingMint(devMintAttempt);
         try {
-          await completeMint(devMintAttempt);
+          await completeMint(runId, devMintAttempt);
         } catch (mintErr) {
           const msg = describeMintError(mintErr, false);
           setErrorMessage(msg);
-          setStage("error");
+          setFlowStage(runId, "error", "devnet-mint-failed");
         }
         return;
       }
@@ -647,7 +647,7 @@ export function DetailsStep() {
       //    Token-2022 TokenMetadata extension can reference it at init.
       //    Vanity grinding runs sequentially (not parallel with createOrder)
       //    so a grinder failure aborts before any order is created.
-      setStage("preparing");
+      setFlowStage(runId, "preparing", "creating-order");
       const mintKeypair = await generateMintKeypairForRun();
       const [order, prepared] = await Promise.all([
         createOrder({
@@ -668,7 +668,7 @@ export function DetailsStep() {
       ]);
 
       // 2. Confirming — wallet signs payment
-      setStage("confirming");
+      setFlowStage(runId, "confirming", "payment-signing");
       console.info("[wizard] PAYMENT_TX_BUILD + SIGN_REQUEST", {
         orderId: order.order_id,
         toAddress: order.recipient_wallet,
@@ -682,7 +682,7 @@ export function DetailsStep() {
         amountSol: order.amount_sol,
         cluster: state.cluster,
       });
-      console.info("[wizard] PAYMENT_SIGNED", { orderId: order.order_id, sig });
+      console.info("[wizard] payment success", { orderId: order.order_id, sig });
       setPaymentSig(sig);
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER
@@ -690,7 +690,7 @@ export function DetailsStep() {
       // `pendingMint` with `needsVerify: true` so Retry re-runs verifyPayment
       // (idempotent server-side) instead of creating a new order + charging
       // the wallet a second time.
-      setStage("processing");
+      setFlowStage(runId, "processing", "payment-verified-processing");
       try {
         await verifyPayment({
           data: {

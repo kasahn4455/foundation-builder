@@ -99,10 +99,14 @@ export function CreationModal({
   }
 
   function openRaydium() {
-    const url = mintAddress
-      ? `https://raydium.io/liquidity/create-pool/?token=${mintAddress}`
-      : "https://raydium.io/liquidity/create-pool/";
-    window.open(url, "_blank", "noopener,noreferrer");
+    // Raydium's create-pool flow doesn't support pre-filling the token via
+    // query string, so we just deep-link to the create-pool page and ask the
+    // user to paste the mint address (which we already copied / show above).
+    window.open(
+      "https://raydium.io/liquidity/create-pool/",
+      "_blank",
+      "noopener,noreferrer",
+    );
   }
 
   return (
@@ -148,8 +152,9 @@ export function CreationModal({
               {tokenName || "Your token"} is live
             </h3>
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-              Your token has been minted successfully. To make it tradable, continue to Raydium
-              and create liquidity using your new token mint address.
+              Your token has been minted successfully. To make it tradable, copy the
+              mint address below and paste it into Raydium's create-pool flow to
+              add liquidity.
             </p>
 
             {mintAddress && (

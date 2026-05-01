@@ -152,8 +152,9 @@ export function CreationModal({
               {tokenName || "Your token"} is live
             </h3>
             <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
-              Your token has been minted successfully. To make it tradable, continue to Raydium
-              and create liquidity using your new token mint address.
+              Your token has been minted successfully. To make it tradable, copy the
+              mint address below and paste it into Raydium's create-pool flow to
+              add liquidity.
             </p>
 
             {mintAddress && (

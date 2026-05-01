@@ -212,7 +212,9 @@ export const uploadTokenMetadata = createServerFn({ method: "POST" })
         bytes: manifestBytes.byteLength,
         err: jsonErr,
       });
-      throw new Error("Failed to upload token metadata manifest");
+      throw new Error(
+        `Failed to upload token metadata manifest: ${jsonErr.message || "unknown storage error"}`,
+      );
     }
 
     const uri = publicUrlFor(manifestPath);

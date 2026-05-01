@@ -118,6 +118,11 @@ export function DetailsStep() {
 
   async function completeMint(args: NonNullable<typeof pendingMint>) {
     setStage("creating");
+    console.info("[wizard] MINT_TX_BUILD + SIGN_REQUEST", {
+      orderId: args.orderId,
+      mint: args.mintKeypair.publicKey.toBase58(),
+      cluster: args.cluster,
+    });
     const mintRes = await mintToken({
       provider: provider!,
       payerAddress: args.walletAddress,
@@ -129,6 +134,11 @@ export function DetailsStep() {
       revokeUpdate: args.revokeUpdate,
       mintKeypair: args.mintKeypair,
       metadata: args.metadata,
+    });
+    console.info("[wizard] MINT_SIGNED", {
+      orderId: args.orderId,
+      mint: mintRes.mintAddress,
+      signature: mintRes.signature,
     });
 
     // Devnet free-test mode mints without an order — skip backend persistence.

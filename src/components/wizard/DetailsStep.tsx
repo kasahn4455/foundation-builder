@@ -94,15 +94,16 @@ export function DetailsStep() {
   }
 
   /**
-   * Generates the mint keypair and uploads the off-chain JSON metadata.
-   * Must run BEFORE the on-chain mint tx because the Token-2022 TokenMetadata
-   * extension needs the final HTTPS `uri` at initialization time.
+   * Uploads the off-chain JSON metadata for a (possibly vanity-generated)
+   * mint keypair. Must run BEFORE the on-chain mint tx because the
+   * Token-2022 TokenMetadata extension needs the final HTTPS `uri` at
+   * initialization time. The keypair is supplied by the caller so that the
+   * vanity grinder can run first when Custom Token Address is enabled.
    */
-  async function prepareMetadata(): Promise<{
+  async function prepareMetadata(mintKeypair: Keypair): Promise<{
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
   }> {
-    const mintKeypair = generateMintKeypair();
     const mintAddr = mintKeypair.publicKey.toBase58();
 
     let imageBase64: string | undefined;

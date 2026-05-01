@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
@@ -15,7 +15,9 @@ import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
 import {
   grindVanityMintKeypair,
   validateVanitySuffix,
+  isLikelyMobile,
   MAX_SUFFIX_LENGTH,
+  MAX_SUFFIX_LENGTH_MOBILE,
   type VanityHandle,
 } from "@/lib/solana/vanity";
 import { Keypair } from "@solana/web3.js";
@@ -58,6 +60,16 @@ export function DetailsStep() {
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
   } | null>(null);
+
+  // Safety net: if the user navigates away mid-grind (or the component
+  // unmounts for any reason), terminate the worker so it doesn't keep burning
+  // CPU/battery in the background.
+  useEffect(() => {
+    return () => {
+      vanityHandleRef.current?.cancel();
+      vanityHandleRef.current = null;
+    };
+  }, []);
 
   async function completeMint(args: NonNullable<typeof pendingMint>) {
     setStage("creating");
@@ -223,10 +235,22 @@ export function DetailsStep() {
 
     // Validate the vanity suffix early — never let raw user text reach
     // PublicKey/Keypair logic. The grinder also re-validates internally.
+    // On mobile we additionally clamp to MAX_SUFFIX_LENGTH_MOBILE so weak
+    // devices can't be locked into a 4-char grind that will almost
+    // certainly time out.
+    const onMobile = isLikelyMobile();
+    const effectiveMaxSuffix = onMobile ? MAX_SUFFIX_LENGTH_MOBILE : MAX_SUFFIX_LENGTH;
     if (state.customAddress) {
       const v = validateVanitySuffix(state.customAddressSuffix);
       if (!v.ok) {
         setErrorMessage(`Custom Token Address: ${v.reason}`);
+        setStage("error");
+        return;
+      }
+      if (v.suffix.length > effectiveMaxSuffix) {
+        setErrorMessage(
+          `Custom Token Address: on mobile please use ${effectiveMaxSuffix} characters or fewer (longer suffixes can take too long on phones).`,
+        );
         setStage("error");
         return;
       }
@@ -239,6 +263,11 @@ export function DetailsStep() {
      * enabled, run the Web Worker grinder until we find a keypair whose
      * base58 public key ends with the user's validated suffix. Otherwise
      * fall back to a one-shot random keypair.
+     *
+     * Mobile: shorter timeout/attempt cap so the modal never hangs.
+     * Desktop: full default budget.
+     * Cancellation: rejecting with reason="cancelled" is a clean user action,
+     * NOT an error — the outer catch maps it to a friendly message + non-error stage.
      */
     const generateMintKeypairForRun = async (): Promise<Keypair> => {
       if (!state.customAddress) return generateMintKeypair();
@@ -246,6 +275,8 @@ export function DetailsStep() {
       const handle = grindVanityMintKeypair({
         suffix: state.customAddressSuffix.trim(),
         caseSensitive: true,
+        maxAttempts: onMobile ? 2_000_000 : undefined,
+        maxElapsedMs: onMobile ? 90_000 : undefined,
         onProgress: (p) => setVanityProgress(p),
       });
       vanityHandleRef.current = handle;
@@ -383,6 +414,16 @@ export function DetailsStep() {
         setStage("error");
       }
     } catch (err) {
+      // Vanity grinder cancellation is a deliberate user action — close the
+      // modal cleanly instead of showing the "Mint failed" error screen. No
+      // order/payment exists yet at this point because grinding runs first.
+      const reason = (err as { reason?: string } | null)?.reason;
+      if (reason === "cancelled") {
+        console.info("[wizard] vanity search cancelled by user");
+        setStage(null);
+        setVanityProgress(null);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Something went wrong";
       // Map common wallet rejections to a friendlier message
       const friendly = /User rejected|reject/i.test(msg)

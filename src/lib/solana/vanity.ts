@@ -12,8 +12,26 @@ export const BASE58_ALPHABET =
   "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const BASE58_SET = new Set(BASE58_ALPHABET.split(""));
 
-/** Hard cap on suffix length. 4 chars ≈ 11.3M attempts on average. */
+/**
+ * Hard cap on suffix length. 4 chars ≈ 11.3M attempts on average.
+ * On mobile (`isLikelyMobile()` true) we additionally clamp the EFFECTIVE
+ * suffix to MAX_SUFFIX_LENGTH_MOBILE during runCreation so a phone can never
+ * be asked to grind a 4-char suffix that would almost certainly time out.
+ */
 export const MAX_SUFFIX_LENGTH = 4;
+export const MAX_SUFFIX_LENGTH_MOBILE = 3;
+
+/**
+ * Best-effort mobile detection. Used ONLY to pick safer defaults
+ * (shorter timeout, suffix-length advisory). Never used for security.
+ */
+export function isLikelyMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  // userAgentData is the modern API; fall back to UA string sniff.
+  const uaData = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData;
+  if (uaData && typeof uaData.mobile === "boolean") return uaData.mobile;
+  return /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent || "");
+}
 
 export type VanityValidationResult =
   | { ok: true; suffix: string }
@@ -76,6 +94,11 @@ export type GrindOptions = {
 
 const DEFAULT_MAX_ATTEMPTS = 8_000_000;
 const DEFAULT_MAX_ELAPSED_MS = 180_000;
+// Mobile devices have far less single-thread perf and stricter background-tab
+// throttling. We cap mobile grinds at ~90s / 2M attempts so the user gets a
+// clean failure instead of a hung modal.
+const MOBILE_MAX_ATTEMPTS = 2_000_000;
+const MOBILE_MAX_ELAPSED_MS = 90_000;
 
 /**
  * Spawn a Web Worker that grinds Solana keypairs until the public key
@@ -99,7 +122,29 @@ export function grindVanityMintKeypair(opts: GrindOptions): VanityHandle {
     };
   }
 
-  const worker = new VanityWorker();
+  // Construct the worker defensively. Workers can be unavailable (CSP,
+  // ancient browsers, embedded webviews, content blockers) and `new Worker`
+  // throws synchronously in those cases. Surface a clean rejection rather
+  // than letting the caller's UI hang in the "preparing" state.
+  let worker: Worker;
+  try {
+    worker = new VanityWorker();
+  } catch (constructErr) {
+    const message =
+      "Custom Token Address generation is not supported in this browser. " +
+      "Disable Custom Token Address and try again, or use a desktop browser.";
+    return {
+      promise: Promise.reject(
+        Object.assign(new Error(message), {
+          reason: "error" as const,
+          attempts: 0,
+          elapsedMs: 0,
+          cause: constructErr,
+        }),
+      ),
+      cancel: () => {},
+    };
+  }
   let settled = false;
 
   const promise = new Promise<Keypair>((resolve, reject) => {

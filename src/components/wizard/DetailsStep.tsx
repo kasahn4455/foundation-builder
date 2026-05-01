@@ -49,6 +49,21 @@ export function DetailsStep() {
   const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
   const vanityHandleRef = useRef<VanityHandle | null>(null);
   const [suffixError, setSuffixError] = useState<string | undefined>();
+  /**
+   * Synchronous re-entry guard for the Create Token click handler.
+   *
+   * `disabled={stage !== null && ...}` on the button is NOT enough on its own:
+   * `runCreation` does async work (balance preflight, vanity grind) BEFORE the
+   * first `setStage(...)` call, so the button stays visually enabled for that
+   * window. A fast double-click — or a duplicate handler invocation from any
+   * source — would otherwise race two `createOrder` + `sendPayment` calls and
+   * trigger TWO Phantom payment popups for the same intent.
+   *
+   * A useRef flips synchronously inside the same tick as the click, so the
+   * second invocation bails immediately. Released in `finally` so retries and
+   * subsequent attempts still work.
+   */
+  const isRunningRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
     paymentSignature: string;
@@ -103,6 +118,11 @@ export function DetailsStep() {
 
   async function completeMint(args: NonNullable<typeof pendingMint>) {
     setStage("creating");
+    console.info("[wizard] MINT_TX_BUILD + SIGN_REQUEST", {
+      orderId: args.orderId,
+      mint: args.mintKeypair.publicKey.toBase58(),
+      cluster: args.cluster,
+    });
     const mintRes = await mintToken({
       provider: provider!,
       payerAddress: args.walletAddress,
@@ -114,6 +134,11 @@ export function DetailsStep() {
       revokeUpdate: args.revokeUpdate,
       mintKeypair: args.mintKeypair,
       metadata: args.metadata,
+    });
+    console.info("[wizard] MINT_SIGNED", {
+      orderId: args.orderId,
+      mint: mintRes.mintAddress,
+      signature: mintRes.signature,
     });
 
     // Devnet free-test mode mints without an order — skip backend persistence.
@@ -551,6 +576,12 @@ export function DetailsStep() {
 
       // 2. Confirming — wallet signs payment
       setStage("confirming");
+      console.info("[wizard] PAYMENT_TX_BUILD + SIGN_REQUEST", {
+        orderId: order.order_id,
+        toAddress: order.recipient_wallet,
+        amountSol: order.amount_sol,
+        cluster: state.cluster,
+      });
       const sig = await sendPayment({
         provider,
         fromAddress: wallet.address,
@@ -558,6 +589,7 @@ export function DetailsStep() {
         amountSol: order.amount_sol,
         cluster: state.cluster,
       });
+      console.info("[wizard] PAYMENT_SIGNED", { orderId: order.order_id, sig });
       setPaymentSig(sig);
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER
@@ -667,7 +699,24 @@ export function DetailsStep() {
   }
 
   function handleCreate() {
-    void runCreation();
+    // Synchronous re-entry guard — see isRunningRef declaration above.
+    // Flips in the same tick as the click so a fast double-click (or any
+    // duplicate handler invocation) cannot start a second runCreation()
+    // before the first one calls setStage(...) and disables the button.
+    if (isRunningRef.current) {
+      console.warn("[wizard] CREATE_TOKEN_DUPLICATE_CLICK_BLOCKED — already running");
+      return;
+    }
+    isRunningRef.current = true;
+    console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
+      cluster: state.cluster,
+      hasPendingMint: Boolean(pendingMint),
+      pendingNeedsVerify: pendingMint?.needsVerify ?? false,
+    });
+    void runCreation().finally(() => {
+      isRunningRef.current = false;
+      console.info("[wizard] CREATE_TOKEN_HANDLER_END");
+    });
   }
 
   return (

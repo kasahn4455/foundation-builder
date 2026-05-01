@@ -253,17 +253,25 @@ export function DetailsStep() {
     // step (completeMint), never createOrder/sendPayment/verifyPayment, so
     // the user is never charged twice for the same token.
     if (pendingMint) {
-      console.info("[wizard] retry: payment preserved, rebuilding mint tx only", {
+      // Devnet free-test mode never made a real payment, so don't render the
+      // "Payment received — will not be charged again" framing on retry. The
+      // sentinel "devnet-test" is not a real signature and must not be shown
+      // as one in the modal.
+      const isDevnetTestRetry =
+        pendingMint.cluster === "devnet" && pendingMint.paymentSignature === "devnet-test";
+      console.info("[wizard] retry: rebuilding mint tx only", {
         orderId: pendingMint.orderId,
         paymentSignature: pendingMint.paymentSignature,
         mint: pendingMint.mintKeypair.publicKey.toBase58(),
         cluster: pendingMint.cluster,
-        path: "retry-mint-only-no-recharge",
+        isDevnetTestRetry,
+        path: isDevnetTestRetry ? "retry-devnet-test-no-payment" : "retry-mint-only-no-recharge",
       });
       // Surface the preserved payment signature in the modal immediately so
       // the user sees it the moment retry starts (and during any subsequent
-      // failure), not only after the next failure renders.
-      setPaymentSig(pendingMint.paymentSignature);
+      // failure), not only after the next failure renders. Skip on devnet
+      // free-test where no real payment exists.
+      setPaymentSig(isDevnetTestRetry ? undefined : pendingMint.paymentSignature);
       try {
         await completeMint(pendingMint);
         console.info("[wizard] retry mint succeeded", {
@@ -272,9 +280,10 @@ export function DetailsStep() {
         });
       } catch (mintErr) {
         const msg = mintErr instanceof Error ? mintErr.message : "Mint transaction failed";
-        console.error("[wizard] retry mint failed (payment still preserved)", {
+        console.error("[wizard] retry mint failed", {
           orderId: pendingMint.orderId,
           paymentSignature: pendingMint.paymentSignature,
+          isDevnetTestRetry,
           err: mintErr,
         });
         setErrorMessage(msg);

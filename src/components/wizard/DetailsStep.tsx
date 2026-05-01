@@ -336,23 +336,44 @@ export function DetailsStep() {
     };
 
     try {
-      // 0. Preflight — ensure wallet has enough SOL for fee + network costs
-      const NETWORK_BUFFER_SOL = 0.02;
+      // 0. Preflight — ensure wallet has enough SOL for fee + network costs.
+      // Mainnet uses a stricter buffer (rent + tx fee + safety margin) and a
+      // hard-fail balance check: a real charge is about to happen, so we MUST
+      // know the wallet can cover it. Devnet keeps the looser behaviour so
+      // free-test mode isn't blocked by transient public RPC hiccups.
+      const NETWORK_BUFFER_SOL = state.cluster === "mainnet" ? 0.03 : 0.02;
       const requiredSol = isDevnetFreeMode ? NETWORK_BUFFER_SOL : totalPrice + NETWORK_BUFFER_SOL;
       try {
         const balanceSol = await getWalletBalanceSol(wallet.address, state.cluster);
+        console.info("[wizard] preflight balance", {
+          cluster: state.cluster,
+          balanceSol,
+          requiredSol,
+        });
         if (balanceSol < requiredSol) {
+          const shortBy = (requiredSol - balanceSol).toFixed(4);
           setErrorMessage(
             isDevnetFreeMode
               ? `Insufficient devnet SOL. Fund this wallet with devnet SOL from a faucet before minting. (Need ~${requiredSol.toFixed(3)} SOL, balance ${balanceSol.toFixed(4)} SOL.)`
-              : `Insufficient SOL balance. You need enough SOL to cover the platform fee and network costs. Required ~${requiredSol.toFixed(2)} SOL, your balance is ${balanceSol.toFixed(4)} SOL.`,
+              : `Insufficient SOL. This mint costs ${totalPrice.toFixed(2)} SOL platform fee + ~${NETWORK_BUFFER_SOL.toFixed(2)} SOL network costs (~${requiredSol.toFixed(2)} SOL total). Your wallet has ${balanceSol.toFixed(4)} SOL — please add at least ${shortBy} SOL and try again.`,
           );
           setStage("error");
           return;
         }
       } catch (balErr) {
-        console.warn("[wizard] balance preflight failed", balErr);
-        // Don't block the flow on RPC hiccups — payment step will surface real errors.
+        console.error("[wizard] balance preflight failed", { cluster: state.cluster, err: balErr });
+        if (state.cluster === "mainnet") {
+          // On mainnet we will not let the user proceed to a real payment when
+          // we can't confirm their balance — surface the RPC failure clearly.
+          const reason = balErr instanceof Error ? balErr.message : String(balErr);
+          setErrorMessage(
+            `Could not check your wallet balance on Solana mainnet RPC. ${reason} ` +
+              `Please reload and try again, or contact support if this persists.`,
+          );
+          setStage("error");
+          return;
+        }
+        // Devnet: don't block the free-test flow on transient RPC hiccups.
       }
 
       // DEVNET FREE TEST MODE: skip order creation, payment, and verification.

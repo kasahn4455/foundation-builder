@@ -426,10 +426,46 @@ export async function mintToken({
       "confirmed",
     );
 
+    // -------------------------------------------------------------------------
+    // Post-confirmation verification: read the on-chain TokenMetadata extension
+    // back from the mint and assert the authority matches what we intended.
+    // This is what makes the "revoke update" claim real — we don't trust the
+    // instruction list, we read state from the chain.
+    // -------------------------------------------------------------------------
+    failurePoint = "verifyMetadataAuthority";
+    let onChainAuthority: string | null = null;
+    try {
+      const onChain = await getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID);
+      if (!onChain) {
+        throw new Error("TokenMetadata extension missing from mint after confirmation");
+      }
+      onChainAuthority = onChain.updateAuthority ? onChain.updateAuthority.toBase58() : null;
+      const expected = finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null;
+      console.info("[mint] metadata update-authority verified", {
+        mint: mintPk.toBase58(),
+        expected,
+        onChain: onChainAuthority,
+        revokeUpdate,
+      });
+      if (onChainAuthority !== expected) {
+        throw new Error(
+          `Metadata update authority mismatch after mint. Expected ${expected ?? "null (revoked)"}, on-chain ${onChainAuthority ?? "null"}.`,
+        );
+      }
+    } catch (verifyErr) {
+      console.error("[mint] metadata authority verification failed", {
+        mint: mintPk.toBase58(),
+        revokeUpdate,
+        err: verifyErr,
+      });
+      throw verifyErr;
+    }
+
     return {
       mintAddress: mintPk.toBase58(),
       ataAddress: ata.toBase58(),
       signature,
+      metadataUpdateAuthority: onChainAuthority,
     };
   } catch (err) {
     console.error("[mint] mintToken failed", { cluster, failurePoint, err });

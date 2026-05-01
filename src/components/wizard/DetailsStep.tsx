@@ -141,6 +141,10 @@ export function DetailsStep() {
     return activeRunIdRef.current === runId;
   }
 
+  function hasTerminalCommit() {
+    return hasCommittedSuccessRef.current || hasCommittedErrorRef.current;
+  }
+
   function setFlowStage(runId: number, next: CreationStage | null, label: string) {
     if (!isActiveRun(runId)) {
       console.warn("[wizard] stale modal state transition ignored", {
@@ -151,18 +155,51 @@ export function DetailsStep() {
       });
       return;
     }
-    if (hasCommittedSuccessRef.current && next !== "success" && next !== null) {
-      console.warn("[wizard] duplicate modal state transition ignored after success", {
+    if (hasTerminalCommit() && next !== null) {
+      console.warn("[wizard] duplicate render-trigger path ignored", {
         runId,
         next,
         label,
+        terminal: hasCommittedSuccessRef.current ? "success" : "error",
       });
       return;
     }
     setStage((prev) => {
       if (prev === next) return prev;
+      if (prev === "creating" && (next === "preparing" || next === "confirming" || next === "processing")) {
+        console.warn("[wizard] duplicate render-trigger path ignored", {
+          runId,
+          from: prev,
+          to: next,
+          label,
+          reason: "creating-stage-locked",
+        });
+        return prev;
+      }
       console.info("[wizard] flow transition", { runId, from: prev, to: next, label });
       return next;
+    });
+  }
+
+  function commitFinalError(runId: number, message: string, label: string) {
+    if (!isActiveRun(runId) || hasTerminalCommit()) {
+      console.warn("[wizard] duplicate render-trigger path ignored", {
+        runId,
+        activeRunId: activeRunIdRef.current,
+        label,
+        terminal: hasCommittedSuccessRef.current ? "success" : hasCommittedErrorRef.current ? "error" : null,
+      });
+      return;
+    }
+
+    hasCommittedErrorRef.current = true;
+    console.info("[wizard] final error state committed", { runId, label, message });
+    setTerminalSnapshot({ kind: "error", message });
+    setErrorMessage(message);
+    setStage((prev) => {
+      if (prev === "error") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev, to: "error", label });
+      return "error";
     });
   }
 
@@ -171,11 +208,11 @@ export function DetailsStep() {
     args: NonNullable<typeof pendingMint>,
     mintRes: Awaited<ReturnType<typeof mintToken>>,
   ) {
-    if (!isActiveRun(runId) || hasCommittedSuccessRef.current) {
+    if (!isActiveRun(runId) || hasTerminalCommit()) {
       console.warn("[wizard] duplicate success callback ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
-        alreadyCommitted: hasCommittedSuccessRef.current,
+        alreadyCommitted: hasTerminalCommit(),
         orderId: args.orderId,
         mint: mintRes.mintAddress,
       });
@@ -193,12 +230,16 @@ export function DetailsStep() {
       cluster: args.cluster,
     };
     console.info("[wizard] final success state commit", committed);
-    setFinalResult(committed);
+    setTerminalSnapshot({ kind: "success", result: committed });
     setMintAddress(committed.mintAddress);
     setPaymentSig(committed.paymentSignature);
     setErrorMessage(undefined);
     setPendingMint(null);
-    setFlowStage(runId, "success", "final-success-commit");
+    setStage((prev) => {
+      if (prev === "success") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev, to: "success", label: "final-success-commit" });
+      return "success";
+    });
   }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {

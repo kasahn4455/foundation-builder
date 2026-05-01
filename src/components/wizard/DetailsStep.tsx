@@ -4,8 +4,30 @@ import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
 import { CreationModal, type CreationStage } from "./CreationModal";
 import { createOrder, verifyPayment, saveTokenResult } from "@/server/orders.functions";
-import { sendPayment, mintToken, getWalletBalanceSol } from "@/lib/solana/mint";
+import { uploadTokenMetadata } from "@/server/metadata.functions";
+import {
+  sendPayment,
+  mintToken,
+  getWalletBalanceSol,
+  generateMintKeypair,
+} from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
+import { Keypair } from "@solana/web3.js";
+
+/** Read a File as raw base64 (without `data:` prefix) for server upload. */
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunk)),
+    );
+  }
+  return btoa(binary);
+}
 
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
@@ -23,6 +45,9 @@ export function DetailsStep() {
     initialSupply: string;
     revokeFreeze: boolean;
     revokeMint: boolean;
+    revokeUpdate: boolean;
+    mintKeypair: Keypair;
+    metadata: { name: string; symbol: string; uri: string };
   } | null>(null);
 
   async function completeMint(args: NonNullable<typeof pendingMint>) {
@@ -35,6 +60,9 @@ export function DetailsStep() {
       initialSupply: args.initialSupply,
       revokeFreeze: args.revokeFreeze,
       revokeMint: args.revokeMint,
+      revokeUpdate: args.revokeUpdate,
+      mintKeypair: args.mintKeypair,
+      metadata: args.metadata,
     });
 
     // Devnet free-test mode mints without an order — skip backend persistence.
@@ -54,6 +82,57 @@ export function DetailsStep() {
     setMintAddress(mintRes.mintAddress);
     setPendingMint(null);
     setStage("success");
+  }
+
+  /**
+   * Generates the mint keypair and uploads the off-chain JSON metadata.
+   * Must run BEFORE the on-chain mint tx because the Token-2022 TokenMetadata
+   * extension needs the final HTTPS `uri` at initialization time.
+   */
+  async function prepareMetadata(): Promise<{
+    mintKeypair: Keypair;
+    metadata: { name: string; symbol: string; uri: string };
+  }> {
+    const mintKeypair = generateMintKeypair();
+    const mintAddr = mintKeypair.publicKey.toBase58();
+
+    let imageBase64: string | undefined;
+    let imageMime: string | undefined;
+    if (state.tokenLogo) {
+      imageBase64 = await fileToBase64(state.tokenLogo);
+      imageMime = state.tokenLogo.type;
+    }
+
+    const socials = state.socialsEnabled
+      ? {
+          website: state.website || "",
+          twitter: state.twitter || "",
+          telegram: state.telegram || "",
+          discord: state.discord || "",
+        }
+      : undefined;
+
+    const res = await uploadTokenMetadata({
+      data: {
+        mint_address: mintAddr,
+        name: state.tokenName.trim(),
+        symbol: state.tokenSymbol.trim(),
+        description: state.description || "",
+        image_base64: imageBase64,
+        image_mime: imageMime,
+        external_url: socials?.website || "",
+        socials,
+      },
+    });
+
+    return {
+      mintKeypair,
+      metadata: {
+        name: state.tokenName.trim(),
+        symbol: state.tokenSymbol.trim(),
+        uri: res.uri,
+      },
+    };
   }
 
   async function runCreation() {
@@ -124,6 +203,9 @@ export function DetailsStep() {
       // DEVNET FREE TEST MODE: skip order creation, payment, and verification.
       // Mint directly so devs can test the full minting path without paying.
       if (isDevnetFreeMode) {
+        // Upload off-chain JSON metadata first so the on-chain `uri` is real.
+        setStage("preparing");
+        const prepared = await prepareMetadata();
         const devMintAttempt = {
           orderId: "devnet-test",
           paymentSignature: "devnet-test",
@@ -133,7 +215,10 @@ export function DetailsStep() {
           initialSupply: supplyDigits,
           revokeFreeze: state.revokeFreeze,
           revokeMint: state.revokeMint,
-        } as const;
+          revokeUpdate: state.revokeUpdate,
+          mintKeypair: prepared.mintKeypair,
+          metadata: prepared.metadata,
+        };
         setPendingMint(devMintAttempt);
         try {
           await completeMint(devMintAttempt);
@@ -145,22 +230,27 @@ export function DetailsStep() {
         return;
       }
 
-      // 1. Preparing — create order on the backend
+      // 1. Preparing — create order on the backend AND upload off-chain metadata.
+      //    The metadata URI must exist before the on-chain mint tx is built so the
+      //    Token-2022 TokenMetadata extension can reference it at initialization.
       setStage("preparing");
-      const order = await createOrder({
-        data: {
-          wallet_address: wallet.address,
-          token_name: state.tokenName.trim(),
-          token_symbol: state.tokenSymbol.trim(),
-          decimals: state.decimals,
-          initial_supply: supplyDigits,
-          cluster: state.cluster,
-          base_fee_sol: 0.3,
-          addon_fee_sol: computeAddonFee(selected),
-          selected_options: selected,
-          total_fee_sol: computeTotalFee(selected),
-        },
-      });
+      const [order, prepared] = await Promise.all([
+        createOrder({
+          data: {
+            wallet_address: wallet.address,
+            token_name: state.tokenName.trim(),
+            token_symbol: state.tokenSymbol.trim(),
+            decimals: state.decimals,
+            initial_supply: supplyDigits,
+            cluster: state.cluster,
+            base_fee_sol: 0.3,
+            addon_fee_sol: computeAddonFee(selected),
+            selected_options: selected,
+            total_fee_sol: computeTotalFee(selected),
+          },
+        }),
+        prepareMetadata(),
+      ]);
 
       // 2. Confirming — wallet signs payment
       setStage("confirming");
@@ -193,7 +283,10 @@ export function DetailsStep() {
         initialSupply: supplyDigits,
         revokeFreeze: state.revokeFreeze,
         revokeMint: state.revokeMint,
-      } as const;
+        revokeUpdate: state.revokeUpdate,
+        mintKeypair: prepared.mintKeypair,
+        metadata: prepared.metadata,
+      };
       setPendingMint(mintAttempt);
 
       // 4. Creating Token — only after payment verified

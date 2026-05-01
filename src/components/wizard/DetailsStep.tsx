@@ -11,7 +11,7 @@ import {
   getWalletBalanceSol,
   generateMintKeypair,
 } from "@/lib/solana/mint";
-import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
+import { computeAddonFee, computeTotalFee, BASE_FEE_SOL } from "@/lib/pricing";
 import {
   grindVanityMintKeypair,
   validateVanitySuffix,

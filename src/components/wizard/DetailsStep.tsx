@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
@@ -15,7 +15,9 @@ import { computeAddonFee, computeTotalFee } from "@/lib/pricing";
 import {
   grindVanityMintKeypair,
   validateVanitySuffix,
+  isLikelyMobile,
   MAX_SUFFIX_LENGTH,
+  MAX_SUFFIX_LENGTH_MOBILE,
   type VanityHandle,
 } from "@/lib/solana/vanity";
 import { Keypair } from "@solana/web3.js";

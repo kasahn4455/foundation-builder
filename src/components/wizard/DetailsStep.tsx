@@ -225,10 +225,22 @@ export function DetailsStep() {
 
     // Validate the vanity suffix early — never let raw user text reach
     // PublicKey/Keypair logic. The grinder also re-validates internally.
+    // On mobile we additionally clamp to MAX_SUFFIX_LENGTH_MOBILE so weak
+    // devices can't be locked into a 4-char grind that will almost
+    // certainly time out.
+    const onMobile = isLikelyMobile();
+    const effectiveMaxSuffix = onMobile ? MAX_SUFFIX_LENGTH_MOBILE : MAX_SUFFIX_LENGTH;
     if (state.customAddress) {
       const v = validateVanitySuffix(state.customAddressSuffix);
       if (!v.ok) {
         setErrorMessage(`Custom Token Address: ${v.reason}`);
+        setStage("error");
+        return;
+      }
+      if (v.suffix.length > effectiveMaxSuffix) {
+        setErrorMessage(
+          `Custom Token Address: on mobile please use ${effectiveMaxSuffix} characters or fewer (longer suffixes can take too long on phones).`,
+        );
         setStage("error");
         return;
       }
@@ -241,6 +253,11 @@ export function DetailsStep() {
      * enabled, run the Web Worker grinder until we find a keypair whose
      * base58 public key ends with the user's validated suffix. Otherwise
      * fall back to a one-shot random keypair.
+     *
+     * Mobile: shorter timeout/attempt cap so the modal never hangs.
+     * Desktop: full default budget.
+     * Cancellation: rejecting with reason="cancelled" is a clean user action,
+     * NOT an error — the outer catch maps it to a friendly message + non-error stage.
      */
     const generateMintKeypairForRun = async (): Promise<Keypair> => {
       if (!state.customAddress) return generateMintKeypair();
@@ -248,6 +265,8 @@ export function DetailsStep() {
       const handle = grindVanityMintKeypair({
         suffix: state.customAddressSuffix.trim(),
         caseSensitive: true,
+        maxAttempts: onMobile ? 2_000_000 : undefined,
+        maxElapsedMs: onMobile ? 90_000 : undefined,
         onProgress: (p) => setVanityProgress(p),
       });
       vanityHandleRef.current = handle;

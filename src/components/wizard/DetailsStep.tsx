@@ -473,9 +473,7 @@ export function DetailsStep() {
   }
 
   async function runCreation(runId: number) {
-    setErrorMessage(undefined);
-    setMintAddress(undefined);
-    setTerminalSnapshot(null);
+    setFlow({ stage: "idle" });
 
     if (!wallet || !provider) {
       openPicker();
@@ -548,7 +546,11 @@ export function DetailsStep() {
       // the user sees it the moment retry starts (and during any subsequent
       // failure), not only after the next failure renders. Skip on devnet
       // free-test where no real payment exists.
-      setPaymentSig(isDevnetTestRetry ? undefined : pendingMint.paymentSignature);
+      setFlow((prev) => ({
+        ...prev,
+        paymentSignature: isDevnetTestRetry ? undefined : pendingMint.paymentSignature,
+        terminalSnapshot: undefined,
+      }));
       try {
         // If a previous attempt sent the payment but verifyPayment failed
         // (e.g. RPC hiccup), re-run verifyPayment first. The server is
@@ -630,7 +632,7 @@ export function DetailsStep() {
       return;
     }
 
-    setPaymentSig(undefined);
+    setFlow((prev) => ({ ...prev, paymentSignature: undefined, terminalSnapshot: undefined }));
 
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
@@ -794,7 +796,7 @@ export function DetailsStep() {
         cluster: state.cluster,
       });
       console.info("[wizard] payment success", { orderId: order.order_id, sig });
-      setPaymentSig(sig);
+      setFlow((prev) => ({ ...prev, paymentSignature: sig, terminalSnapshot: undefined }));
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER
       // payment was sent (RPC hiccup, transient backend error), seed

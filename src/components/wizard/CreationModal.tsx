@@ -272,13 +272,21 @@ function ProgressBody({
   tokenName,
   tokenSymbol,
   totalSol,
+  vanityProgress,
+  vanitySuffix,
+  onCancelVanity,
 }: {
   stage: CreationStage;
   tokenName?: string;
   tokenSymbol?: string;
   totalSol?: number;
+  vanityProgress?: { attempts: number; elapsedMs: number };
+  vanitySuffix?: string;
+  onCancelVanity?: () => void;
 }) {
   const currentIdx = stageOrder.indexOf(stage as (typeof stageOrder)[number]);
+  const showVanity =
+    stage === "preparing" && vanityProgress && vanitySuffix && vanitySuffix.length > 0;
   return (
     <div>
       <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">Working</div>
@@ -290,6 +298,31 @@ function ProgressBody({
         <p className="mt-1 text-sm text-muted-foreground">
           Total: <span className="text-foreground font-semibold">{totalSol.toFixed(2)} SOL</span>
         </p>
+      )}
+
+      {showVanity && (
+        <div className="mt-5 rounded-2xl border border-accent/30 bg-accent/[0.06] p-4 text-left">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-accent/90">
+            Searching vanity address
+          </div>
+          <p className="mt-1 text-sm">
+            Looking for a mint address ending in{" "}
+            <code className="font-mono text-foreground">{vanitySuffix}</code>…
+          </p>
+          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>{vanityProgress!.attempts.toLocaleString()} attempts</span>
+            <span>{(vanityProgress!.elapsedMs / 1000).toFixed(1)}s</span>
+          </div>
+          {onCancelVanity && (
+            <button
+              type="button"
+              onClick={onCancelVanity}
+              className="mt-3 inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold"
+            >
+              Cancel search
+            </button>
+          )}
+        </div>
       )}
 
       <ul className="mt-6 space-y-2">

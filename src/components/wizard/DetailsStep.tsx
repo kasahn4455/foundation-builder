@@ -12,6 +12,9 @@ import {
   generateMintKeypair,
 } from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee, BASE_FEE_SOL } from "@/lib/pricing";
+import { explorerTokenUrl } from "@/lib/solana/cluster";
+
+const RAYDIUM_CREATE_POOL_URL = "https://raydium.io/liquidity/create-pool/";
 import {
   grindVanityMintKeypair,
   validateVanitySuffix,

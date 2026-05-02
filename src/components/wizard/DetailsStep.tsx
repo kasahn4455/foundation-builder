@@ -992,6 +992,7 @@ export function DetailsStep() {
       //    Vanity grinding runs sequentially (not parallel with createOrder)
       //    so a grinder failure aborts before any order is created.
       setFlowStage(runId, "preparing", "creating-order");
+      const attemptId = nextMintAttemptId(runId, "initial");
       const mintKeypair = await generateMintKeypairForRun();
       const [order, prepared] = await Promise.all([
         createOrder({
@@ -1008,7 +1009,7 @@ export function DetailsStep() {
             total_fee_sol: computeTotalFee(selected),
           },
         }),
-        prepareMetadata(mintKeypair),
+        prepareMetadata(mintKeypair, undefined, attemptId),
       ]);
 
       // 2. Confirming — wallet signs payment
@@ -1028,6 +1029,14 @@ export function DetailsStep() {
       });
       console.info("[wizard] payment success", { orderId: order.order_id, sig });
       setFlow((prev) => ({ ...prev, paymentSignature: sig, terminalSnapshot: undefined }));
+      const paidPending = buildPendingMintSnapshot({
+        orderId: order.order_id,
+        paymentSignature: sig,
+        walletAddress: wallet.address,
+        cluster: state.cluster,
+        feePaid: order.amount_sol,
+        initialSupply: supplyDigits,
+      });
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER
       // payment was sent (RPC hiccup, transient backend error), seed
@@ -1058,17 +1067,8 @@ export function DetailsStep() {
           err: verifyErr,
         });
         setPendingMint({
-          orderId: order.order_id,
-          paymentSignature: sig,
-          walletAddress: wallet.address,
-          cluster: state.cluster,
-          decimals: state.decimals,
-          initialSupply: supplyDigits,
-          revokeFreeze: state.revokeFreeze,
-          revokeMint: state.revokeMint,
-          revokeUpdate: state.revokeUpdate,
-          mintKeypair: prepared.mintKeypair,
-          metadata: prepared.metadata,
+          ...paidPending,
+          lastMintAddress: prepared.mintKeypair.publicKey.toBase58(),
           needsVerify: true,
         });
         commitFinalError(
@@ -1080,20 +1080,15 @@ export function DetailsStep() {
         return;
       }
 
-      const mintAttempt = {
-        orderId: order.order_id,
-        paymentSignature: sig,
-        walletAddress: wallet.address,
-        cluster: state.cluster,
-        decimals: state.decimals,
-        initialSupply: supplyDigits,
-        revokeFreeze: state.revokeFreeze,
-        revokeMint: state.revokeMint,
-        revokeUpdate: state.revokeUpdate,
+      const mintAddress = prepared.mintKeypair.publicKey.toBase58();
+      const mintAttempt: MintAttempt = {
+        ...paidPending,
+        attemptId,
         mintKeypair: prepared.mintKeypair,
         metadata: prepared.metadata,
+        lastMintAddress: mintAddress,
       };
-      setPendingMint(mintAttempt);
+      setPendingMint({ ...paidPending, lastMintAddress: mintAddress });
 
       // 4. Creating Token — only after payment verified
       try {

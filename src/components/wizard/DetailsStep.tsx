@@ -1261,7 +1261,13 @@ export function DetailsStep() {
         open={flow.stage !== "idle"}
         stage={modalStage}
         mintAddress={finalResult?.mintAddress}
-        paymentSignature={finalResult?.paymentSignature ?? flow.paymentSignature}
+        // After finalization, ALWAYS read paymentSignature from the frozen
+        // snapshot (even when the snapshot's value is `undefined` for devnet)
+        // — never fall back to live `flow.paymentSignature`. The fallback was
+        // letting late state writes leak into the completed page.
+        paymentSignature={
+          isFinalSuccess ? finalResult.paymentSignature : flow.paymentSignature
+        }
         errorMessage={stableErrorMessage}
         tokenName={isFinalSuccess ? finalResult.tokenName : state.tokenName}
         tokenSymbol={isFinalSuccess ? finalResult.tokenSymbol : state.tokenSymbol}

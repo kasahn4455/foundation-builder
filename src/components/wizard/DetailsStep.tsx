@@ -993,23 +993,31 @@ export function DetailsStep() {
       //    so a grinder failure aborts before any order is created.
       setFlowStage(runId, "preparing", "creating-order");
       const attemptId = nextMintAttemptId(runId, "initial");
+      const initialSnapshot = buildPendingMintSnapshot({
+        orderId: "prepayment",
+        paymentSignature: "prepayment",
+        walletAddress: wallet.address,
+        cluster: state.cluster,
+        feePaid: totalPrice,
+        initialSupply: supplyDigits,
+      });
       const mintKeypair = await generateMintKeypairForRun();
       const [order, prepared] = await Promise.all([
         createOrder({
           data: {
-            wallet_address: wallet.address,
-            token_name: state.tokenName.trim(),
-            token_symbol: state.tokenSymbol.trim(),
-            decimals: state.decimals,
-            initial_supply: supplyDigits,
-            cluster: state.cluster,
+            wallet_address: initialSnapshot.walletAddress,
+            token_name: initialSnapshot.tokenName,
+            token_symbol: initialSnapshot.tokenSymbol,
+            decimals: initialSnapshot.decimals,
+            initial_supply: initialSnapshot.initialSupply,
+            cluster: initialSnapshot.cluster,
             base_fee_sol: BASE_FEE_SOL,
             addon_fee_sol: computeAddonFee(selected),
             selected_options: selected,
             total_fee_sol: computeTotalFee(selected),
           },
         }),
-        prepareMetadata(mintKeypair, undefined, attemptId),
+        prepareMetadata(mintKeypair, initialSnapshot, attemptId),
       ]);
 
       // 2. Confirming — wallet signs payment
@@ -1018,24 +1026,24 @@ export function DetailsStep() {
         orderId: order.order_id,
         toAddress: order.recipient_wallet,
         amountSol: order.amount_sol,
-        cluster: state.cluster,
+        cluster: initialSnapshot.cluster,
       });
       const sig = await sendPayment({
         provider,
-        fromAddress: wallet.address,
+        fromAddress: initialSnapshot.walletAddress,
         toAddress: order.recipient_wallet,
         amountSol: order.amount_sol,
-        cluster: state.cluster,
+        cluster: initialSnapshot.cluster,
       });
       console.info("[wizard] payment success", { orderId: order.order_id, sig });
       setFlow((prev) => ({ ...prev, paymentSignature: sig, terminalSnapshot: undefined }));
       const paidPending = buildPendingMintSnapshot({
         orderId: order.order_id,
         paymentSignature: sig,
-        walletAddress: wallet.address,
-        cluster: state.cluster,
+        walletAddress: initialSnapshot.walletAddress,
+        cluster: initialSnapshot.cluster,
         feePaid: order.amount_sol,
-        initialSupply: supplyDigits,
+        initialSupply: initialSnapshot.initialSupply,
       });
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER

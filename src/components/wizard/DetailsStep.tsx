@@ -706,6 +706,10 @@ export function DetailsStep() {
         //      (mintToken always fetches a fresh blockhash internally)
         // Payment state (orderId, paymentSignature) is preserved untouched —
         // user is NOT recharged.
+        // Stage may already be "preparing" (no-needsVerify path) or about to
+        // transition from "processing" → "preparing" after the verify above.
+        // setFlowStage no-ops when the stage is unchanged, so this is the
+        // single transition write for the preparing phase.
         setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
         const freshKeypair = await generateMintKeypairForRun();
         const freshMint = freshKeypair.publicKey.toBase58();

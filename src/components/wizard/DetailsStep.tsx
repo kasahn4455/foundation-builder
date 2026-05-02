@@ -238,10 +238,36 @@ export function DetailsStep() {
       feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
       cluster: args.cluster,
     };
-    console.info("[wizard] final success state committed", committed);
+    console.info("[wizard] final result object creation", {
+      runId,
+      orderId: committed.orderId,
+      mintAddress: committed.mintAddress,
+      ataAddress: committed.ataAddress,
+      tokenSignature: committed.tokenSignature,
+      paymentSignature: committed.paymentSignature,
+      cluster: committed.cluster,
+      feePaid: committed.feePaid,
+    });
+    console.info("[wizard] final completion state commit", { runId, source: "commitFinalSuccess" });
+    // Stop the vanity worker (if any late progress callback is queued) BEFORE
+    // committing success, so the success page never re-renders with a late
+    // vanityProgress update underneath it.
+    vanityHandleRef.current?.cancel();
+    vanityHandleRef.current = null;
+    setVanityProgress(null);
+    // Atomic commit: clear pendingMint AND flip to success in the same React
+    // batch by using a single setFlow + a microtask-free setPendingMint. The
+    // success snapshot is the single source of truth from this point on; no
+    // later async callback may mutate it.
     setPendingMint(null);
     setFlow((prev) => {
-      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") return prev;
+      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") {
+        console.warn("[wizard] duplicate completion event ignored", {
+          runId,
+          reason: "success-already-committed-in-flow",
+        });
+        return prev;
+      }
       console.info("[wizard] flow transition", { runId, from: prev.stage, to: "success", label: "final-success-commit" });
       return {
         stage: "success",

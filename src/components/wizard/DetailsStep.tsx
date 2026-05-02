@@ -1096,16 +1096,22 @@ export function DetailsStep() {
   const modalStage: CreationStage = flow.stage === "idle" ? "preparing" : flow.stage;
   // Once success is committed, the completed page MUST render exclusively from
   // the frozen result snapshot. No live wizard state (cluster, totalPrice,
-  // vanityProgress, vanitySuffix) may leak into props after this point — that
-  // was the source of the final-page flicker after Phantom approval.
+  // vanityProgress, vanitySuffix, flow.paymentSignature) may leak into props
+  // after this point — that was the source of the final-page churn the user
+  // reported. We log the render source from a useEffect (not on every render)
+  // so unrelated parent re-renders don't spam the console.
   const isFinalSuccess = finalResult !== null;
-  if (isFinalSuccess) {
+  useEffect(() => {
+    if (!isFinalSuccess) return;
     console.info("[wizard] final page render source", {
       source: "frozen-snapshot",
       orderId: finalResult.orderId,
       mintAddress: finalResult.mintAddress,
     });
-  }
+    // finalResult is the frozen snapshot — once `isFinalSuccess` flips true,
+    // its identity does not change for the lifetime of this completed page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFinalSuccess]);
 
   return (
     <div className="space-y-6">

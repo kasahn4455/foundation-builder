@@ -78,6 +78,45 @@ type CreateFlowState = {
   terminalSnapshot?: TerminalSnapshot;
 };
 
+type PendingMint = {
+  orderId: string;
+  paymentSignature: string;
+  walletAddress: string;
+  cluster: "devnet" | "mainnet";
+  feePaid: number;
+  decimals: number;
+  initialSupply: string;
+  revokeFreeze: boolean;
+  revokeMint: boolean;
+  revokeUpdate: boolean;
+  tokenName: string;
+  tokenSymbol: string;
+  description: string;
+  socialsEnabled: boolean;
+  website: string;
+  twitter: string;
+  telegram: string;
+  discord: string;
+  modifyCreator: boolean;
+  creatorWalletAddress: string;
+  tokenLogo?: File;
+  lastMintAddress?: string;
+  /**
+   * When true, server-side payment verification has not yet succeeded for
+   * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
+   * retry we MUST re-run verifyPayment first — never createOrder/sendPayment
+   * again — because verifyPayment is idempotent server-side for the same
+   * (order_id, signature) pair and will not re-charge the user.
+   */
+  needsVerify?: boolean;
+};
+
+type MintAttempt = PendingMint & {
+  attemptId: string;
+  mintKeypair: Keypair;
+  metadata: { name: string; symbol: string; uri: string };
+};
+
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
   const { wallet, provider, openPicker } = useWallet();
@@ -114,27 +153,9 @@ export function DetailsStep() {
    */
   const hasFinalizedRef = useRef(false);
   const mintCompletionInFlightRef = useRef(false);
-  const [pendingMint, setPendingMint] = useState<{
-    orderId: string;
-    paymentSignature: string;
-    walletAddress: string;
-    cluster: "devnet" | "mainnet";
-    decimals: number;
-    initialSupply: string;
-    revokeFreeze: boolean;
-    revokeMint: boolean;
-    revokeUpdate: boolean;
-    mintKeypair: Keypair;
-    metadata: { name: string; symbol: string; uri: string };
-    /**
-     * When true, server-side payment verification has not yet succeeded for
-     * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
-     * retry we MUST re-run verifyPayment first — never createOrder/sendPayment
-     * again — because verifyPayment is idempotent server-side for the same
-     * (order_id, signature) pair and will not re-charge the user.
-     */
-    needsVerify?: boolean;
-  } | null>(null);
+  const mintAttemptSeqRef = useRef(0);
+  const activeMintAttemptIdRef = useRef<string | null>(null);
+  const [pendingMint, setPendingMint] = useState<PendingMint | null>(null);
 
   // Safety net: if the user navigates away mid-grind (or the component
   // unmounts for any reason), terminate the worker so it doesn't keep burning
@@ -298,15 +319,18 @@ export function DetailsStep() {
     });
   }
 
-  function commitFinalSuccess(
-    runId: number,
-    args: NonNullable<typeof pendingMint>,
-    mintRes: Awaited<ReturnType<typeof mintToken>>,
-  ) {
-    if (!isActiveRun(runId) || hasTerminalCommit() || hasFinalizedRef.current) {
+  function commitFinalSuccess(runId: number, args: MintAttempt, mintRes: Awaited<ReturnType<typeof mintToken>>) {
+    if (
+      !isActiveRun(runId) ||
+      activeMintAttemptIdRef.current !== args.attemptId ||
+      hasTerminalCommit() ||
+      hasFinalizedRef.current
+    ) {
       console.warn("[wizard] duplicate finalization ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
+        attemptId: args.attemptId,
+        activeAttemptId: activeMintAttemptIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
         alreadyFinalized: hasFinalizedRef.current,
         orderId: args.orderId,
@@ -325,7 +349,7 @@ export function DetailsStep() {
       paymentSignature,
       tokenSignature: mintRes.signature,
       cluster: args.cluster,
-      feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
+      feePaid: args.feePaid,
       tokenName: args.metadata.name,
       tokenSymbol: args.metadata.symbol,
       explorerUrl: explorerTokenUrl(mintRes.mintAddress, args.cluster),
@@ -347,7 +371,49 @@ export function DetailsStep() {
     finalizeSuccess(runId, snapshot);
   }
 
-  async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
+  function nextMintAttemptId(runId: number, label: string) {
+    const attemptId = `${runId}-${++mintAttemptSeqRef.current}-${label}-${Math.random().toString(36).slice(2, 8)}`;
+    activeMintAttemptIdRef.current = attemptId;
+    console.info("[wizard] fresh mint attempt allocated", { runId, attemptId, label });
+    return attemptId;
+  }
+
+  function buildPendingMintSnapshot(args: {
+    orderId: string;
+    paymentSignature: string;
+    walletAddress: string;
+    cluster: "devnet" | "mainnet";
+    feePaid: number;
+    initialSupply: string;
+    needsVerify?: boolean;
+  }): PendingMint {
+    return {
+      orderId: args.orderId,
+      paymentSignature: args.paymentSignature,
+      walletAddress: args.walletAddress,
+      cluster: args.cluster,
+      feePaid: args.feePaid,
+      decimals: state.decimals,
+      initialSupply: args.initialSupply,
+      revokeFreeze: state.revokeFreeze,
+      revokeMint: state.revokeMint,
+      revokeUpdate: state.revokeUpdate,
+      tokenName: state.tokenName.trim(),
+      tokenSymbol: state.tokenSymbol.trim(),
+      description: state.description || "",
+      socialsEnabled: state.socialsEnabled,
+      website: state.website || "",
+      twitter: state.twitter || "",
+      telegram: state.telegram || "",
+      discord: state.discord || "",
+      modifyCreator: state.modifyCreator,
+      creatorWalletAddress: wallet?.address ?? "",
+      tokenLogo: state.tokenLogo ?? undefined,
+      needsVerify: args.needsVerify,
+    };
+  }
+
+  async function completeMint(runId: number, args: MintAttempt): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
       console.warn("[wizard] duplicate completion ignored", {
         runId,
@@ -355,6 +421,15 @@ export function DetailsStep() {
         alreadyCommitted: hasTerminalCommit(),
         orderId: args.orderId,
         reason: "mint-start-blocked-before-wallet-request",
+      });
+      return false;
+    }
+    if (activeMintAttemptIdRef.current !== args.attemptId) {
+      console.warn("[wizard] stale mint attempt ignored before wallet request", {
+        runId,
+        attemptId: args.attemptId,
+        activeAttemptId: activeMintAttemptIdRef.current,
+        orderId: args.orderId,
       });
       return false;
     }
@@ -381,6 +456,7 @@ export function DetailsStep() {
     });
     try {
       const mintRes = await mintToken({
+        clientAttemptId: args.attemptId,
         provider: provider!,
         payerAddress: args.walletAddress,
         cluster: args.cluster,
@@ -394,9 +470,20 @@ export function DetailsStep() {
       });
       console.info("[wizard] phantom approval success", {
         runId,
+        attemptId: args.attemptId,
         orderId: args.orderId,
         signature: mintRes.signature,
       });
+      if (!isActiveRun(runId) || activeMintAttemptIdRef.current !== args.attemptId || hasTerminalCommit()) {
+        console.warn("[wizard] late mint success ignored", {
+          runId,
+          attemptId: args.attemptId,
+          activeAttemptId: activeMintAttemptIdRef.current,
+          orderId: args.orderId,
+          mint: mintRes.mintAddress,
+        });
+        return false;
+      }
       console.info("[wizard] mint success", {
         orderId: args.orderId,
         mint: mintRes.mintAddress,
@@ -448,43 +535,47 @@ export function DetailsStep() {
    * initialization time. The keypair is supplied by the caller so that the
    * vanity grinder can run first when Custom Token Address is enabled.
    */
-  async function prepareMetadata(mintKeypair: Keypair): Promise<{
+  async function prepareMetadata(mintKeypair: Keypair, snapshot?: PendingMint, attemptId?: string): Promise<{
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
   }> {
     const mintAddr = mintKeypair.publicKey.toBase58();
+    const tokenName = snapshot?.tokenName ?? state.tokenName.trim();
+    const tokenSymbol = snapshot?.tokenSymbol ?? state.tokenSymbol.trim();
+    const tokenLogo = snapshot?.tokenLogo ?? state.tokenLogo;
+    const socialsEnabled = snapshot?.socialsEnabled ?? state.socialsEnabled;
 
     // Validate the logo BEFORE base64-encoding so a huge/wrong-type file
     // surfaces a clean error instead of OOM-ing the encoder or producing a
     // confusing zod failure on the server.
     let imageBase64: string | undefined;
     let imageMime: string | undefined;
-    if (state.tokenLogo) {
+    if (tokenLogo) {
       const MAX_LOGO_BYTES = 5 * 1024 * 1024; // matches server-side cap
       const ALLOWED_MIME = /^image\/(png|jpeg|jpg|gif|webp|svg\+xml)$/i;
-      if (state.tokenLogo.size === 0) {
+      if (tokenLogo.size === 0) {
         throw new Error("Token logo file is empty. Please re-upload the image.");
       }
-      if (state.tokenLogo.size > MAX_LOGO_BYTES) {
+      if (tokenLogo.size > MAX_LOGO_BYTES) {
         throw new Error(
-          `Token logo is too large (${(state.tokenLogo.size / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
+          `Token logo is too large (${(tokenLogo.size / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
         );
       }
-      if (!state.tokenLogo.type || !ALLOWED_MIME.test(state.tokenLogo.type)) {
+      if (!tokenLogo.type || !ALLOWED_MIME.test(tokenLogo.type)) {
         throw new Error(
-          `Unsupported logo format "${state.tokenLogo.type || "unknown"}". Use PNG, JPG, GIF, WEBP, or SVG.`,
+          `Unsupported logo format "${tokenLogo.type || "unknown"}". Use PNG, JPG, GIF, WEBP, or SVG.`,
         );
       }
-      imageBase64 = await fileToBase64(state.tokenLogo);
-      imageMime = state.tokenLogo.type;
+      imageBase64 = await fileToBase64(tokenLogo);
+      imageMime = tokenLogo.type;
     }
 
-    const socials = state.socialsEnabled
+    const socials = socialsEnabled
       ? {
-          website: state.website || "",
-          twitter: state.twitter || "",
-          telegram: state.telegram || "",
-          discord: state.discord || "",
+          website: snapshot?.website ?? state.website ?? "",
+          twitter: snapshot?.twitter ?? state.twitter ?? "",
+          telegram: snapshot?.telegram ?? state.telegram ?? "",
+          discord: snapshot?.discord ?? state.discord ?? "",
         }
       : undefined;
 
@@ -498,11 +589,12 @@ export function DetailsStep() {
     //
     //  - Not selected: default creator "MemeMinting" (project attribution).
     //  - Selected:     attribute the connected wallet as the creator.
-    const creator = state.modifyCreator
+    const modifyCreator = snapshot?.modifyCreator ?? state.modifyCreator;
+    const creator = modifyCreator
       ? {
-          name: state.tokenName.trim() || "Custom Creator",
-          site: state.socialsEnabled ? state.website || "" : "",
-          address: wallet?.address ?? "",
+          name: tokenName || "Custom Creator",
+          site: socialsEnabled ? snapshot?.website ?? state.website ?? "" : "",
+          address: snapshot?.creatorWalletAddress ?? wallet?.address ?? "",
         }
       : {
           name: "MemeMinting",
@@ -511,11 +603,12 @@ export function DetailsStep() {
         };
 
     console.info("[wizard] uploading metadata", {
+      attemptId,
       mint: mintAddr,
       hasLogo: Boolean(imageBase64),
       logoMime: imageMime,
-      socialsEnabled: state.socialsEnabled,
-      modifyCreator: state.modifyCreator,
+      socialsEnabled,
+      modifyCreator,
     });
 
     let res: Awaited<ReturnType<typeof uploadTokenMetadata>>;
@@ -523,9 +616,9 @@ export function DetailsStep() {
       res = await uploadTokenMetadata({
         data: {
           mint_address: mintAddr,
-          name: state.tokenName.trim(),
-          symbol: state.tokenSymbol.trim(),
-          description: state.description || "",
+          name: tokenName,
+          symbol: tokenSymbol,
+          description: snapshot?.description ?? state.description ?? "",
           image_base64: imageBase64,
           image_mime: imageMime,
           external_url: socials?.website || "",
@@ -539,6 +632,7 @@ export function DetailsStep() {
       // the modal — we DO NOT continue to mint with a placeholder URI.
       const reason = uploadErr instanceof Error ? uploadErr.message : "Unknown error";
       console.error("[wizard] METADATA_PREPARE_FAILED — mint will not proceed", {
+        attemptId,
         mint: mintAddr,
         reason,
       });
@@ -549,6 +643,7 @@ export function DetailsStep() {
 
     if (!res?.uri || !/^https:\/\//i.test(res.uri)) {
       console.error("[wizard] METADATA_URI_INVALID — mint will not proceed", {
+        attemptId,
         mint: mintAddr,
         res,
       });
@@ -558,6 +653,7 @@ export function DetailsStep() {
     }
 
     console.info("[wizard] METADATA_URI_READY", {
+      attemptId,
       mint: mintAddr,
       uri: res.uri,
       image_url: res.image_url,
@@ -566,8 +662,8 @@ export function DetailsStep() {
     return {
       mintKeypair,
       metadata: {
-        name: state.tokenName.trim(),
-        symbol: state.tokenSymbol.trim(),
+        name: tokenName,
+        symbol: tokenSymbol,
         uri: res.uri,
       },
     };
@@ -654,7 +750,7 @@ export function DetailsStep() {
       // as one in the modal.
       const isDevnetTestRetry =
         pendingMint.cluster === "devnet" && pendingMint.paymentSignature === "devnet-test";
-      const staleMint = pendingMint.mintKeypair.publicKey.toBase58();
+      const staleMint = pendingMint.lastMintAddress ?? "none";
       console.info("[wizard] retry: rebuilding mint flow from scratch", {
         orderId: pendingMint.orderId,
         paymentSignature: pendingMint.paymentSignature,
@@ -717,6 +813,7 @@ export function DetailsStep() {
         // setFlowStage no-ops when the stage is unchanged, so this is the
         // single transition write for the preparing phase.
         setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
+        const attemptId = nextMintAttemptId(runId, "retry");
         const freshKeypair = await generateMintKeypairForRun();
         const freshMint = freshKeypair.publicKey.toBase58();
         console.info("[wizard] retry: generated fresh mint keypair", {
@@ -725,17 +822,19 @@ export function DetailsStep() {
           freshMint,
           regenerated: staleMint !== freshMint,
         });
-        const prepared = await prepareMetadata(freshKeypair);
-        const refreshed = {
+        const prepared = await prepareMetadata(freshKeypair, pendingMint, attemptId);
+        const refreshed: MintAttempt = {
           ...pendingMint,
+          attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          lastMintAddress: freshMint,
           needsVerify: false,
         };
         // Persist refreshed state BEFORE the mint tx so that if the new
         // attempt also fails, the next retry won't try to reuse this
         // keypair either — the next retry will regenerate again.
-        setPendingMint(refreshed);
+        setPendingMint({ ...pendingMint, lastMintAddress: freshMint, needsVerify: false });
         console.info("[wizard] retry: building fresh mint transaction", {
           orderId: refreshed.orderId,
           mint: freshMint,
@@ -864,22 +963,26 @@ export function DetailsStep() {
         // Generate (or grind) the mint keypair, then upload off-chain JSON
         // metadata so the on-chain `uri` is real.
         setFlowStage(runId, "preparing", "devnet-preparing");
-        const mintKeypair = await generateMintKeypairForRun();
-        const prepared = await prepareMetadata(mintKeypair);
-        const devMintAttempt = {
+        const attemptId = nextMintAttemptId(runId, "devnet");
+        const devPending = buildPendingMintSnapshot({
           orderId: "devnet-test",
           paymentSignature: "devnet-test",
           walletAddress: wallet.address,
           cluster: state.cluster,
-          decimals: state.decimals,
+          feePaid: 0,
           initialSupply: supplyDigits,
-          revokeFreeze: state.revokeFreeze,
-          revokeMint: state.revokeMint,
-          revokeUpdate: state.revokeUpdate,
+        });
+        const mintKeypair = await generateMintKeypairForRun();
+        const devMint = mintKeypair.publicKey.toBase58();
+        const prepared = await prepareMetadata(mintKeypair, devPending, attemptId);
+        const devMintAttempt: MintAttempt = {
+          ...devPending,
+          attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          lastMintAddress: devMint,
         };
-        setPendingMint(devMintAttempt);
+        setPendingMint({ ...devPending, lastMintAddress: devMint });
         try {
           await completeMint(runId, devMintAttempt);
         } catch (mintErr) {
@@ -896,23 +999,32 @@ export function DetailsStep() {
       //    Vanity grinding runs sequentially (not parallel with createOrder)
       //    so a grinder failure aborts before any order is created.
       setFlowStage(runId, "preparing", "creating-order");
+      const attemptId = nextMintAttemptId(runId, "initial");
+      const initialSnapshot = buildPendingMintSnapshot({
+        orderId: "prepayment",
+        paymentSignature: "prepayment",
+        walletAddress: wallet.address,
+        cluster: state.cluster,
+        feePaid: totalPrice,
+        initialSupply: supplyDigits,
+      });
       const mintKeypair = await generateMintKeypairForRun();
       const [order, prepared] = await Promise.all([
         createOrder({
           data: {
-            wallet_address: wallet.address,
-            token_name: state.tokenName.trim(),
-            token_symbol: state.tokenSymbol.trim(),
-            decimals: state.decimals,
-            initial_supply: supplyDigits,
-            cluster: state.cluster,
+            wallet_address: initialSnapshot.walletAddress,
+            token_name: initialSnapshot.tokenName,
+            token_symbol: initialSnapshot.tokenSymbol,
+            decimals: initialSnapshot.decimals,
+            initial_supply: initialSnapshot.initialSupply,
+            cluster: initialSnapshot.cluster,
             base_fee_sol: BASE_FEE_SOL,
             addon_fee_sol: computeAddonFee(selected),
             selected_options: selected,
             total_fee_sol: computeTotalFee(selected),
           },
         }),
-        prepareMetadata(mintKeypair),
+        prepareMetadata(mintKeypair, initialSnapshot, attemptId),
       ]);
 
       // 2. Confirming — wallet signs payment
@@ -921,17 +1033,25 @@ export function DetailsStep() {
         orderId: order.order_id,
         toAddress: order.recipient_wallet,
         amountSol: order.amount_sol,
-        cluster: state.cluster,
+        cluster: initialSnapshot.cluster,
       });
       const sig = await sendPayment({
         provider,
-        fromAddress: wallet.address,
+        fromAddress: initialSnapshot.walletAddress,
         toAddress: order.recipient_wallet,
         amountSol: order.amount_sol,
-        cluster: state.cluster,
+        cluster: initialSnapshot.cluster,
       });
       console.info("[wizard] payment success", { orderId: order.order_id, sig });
       setFlow((prev) => ({ ...prev, paymentSignature: sig, terminalSnapshot: undefined }));
+      const paidPending = buildPendingMintSnapshot({
+        orderId: order.order_id,
+        paymentSignature: sig,
+        walletAddress: initialSnapshot.walletAddress,
+        cluster: initialSnapshot.cluster,
+        feePaid: order.amount_sol,
+        initialSupply: initialSnapshot.initialSupply,
+      });
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER
       // payment was sent (RPC hiccup, transient backend error), seed
@@ -943,9 +1063,9 @@ export function DetailsStep() {
         await verifyPayment({
           data: {
             order_id: order.order_id,
-            wallet_address: wallet.address,
+            wallet_address: paidPending.walletAddress,
             payment_signature: sig,
-            cluster: state.cluster,
+            cluster: paidPending.cluster,
           },
         });
         console.info("[wizard] payment verified", {
@@ -958,21 +1078,12 @@ export function DetailsStep() {
         console.error("[wizard] PAYMENT_OK_VERIFY_FAILED — payment preserved, retry will re-verify (no recharge)", {
           orderId: order.order_id,
           paymentSignature: sig,
-          cluster: state.cluster,
+          cluster: paidPending.cluster,
           err: verifyErr,
         });
         setPendingMint({
-          orderId: order.order_id,
-          paymentSignature: sig,
-          walletAddress: wallet.address,
-          cluster: state.cluster,
-          decimals: state.decimals,
-          initialSupply: supplyDigits,
-          revokeFreeze: state.revokeFreeze,
-          revokeMint: state.revokeMint,
-          revokeUpdate: state.revokeUpdate,
-          mintKeypair: prepared.mintKeypair,
-          metadata: prepared.metadata,
+          ...paidPending,
+          lastMintAddress: prepared.mintKeypair.publicKey.toBase58(),
           needsVerify: true,
         });
         commitFinalError(
@@ -984,20 +1095,15 @@ export function DetailsStep() {
         return;
       }
 
-      const mintAttempt = {
-        orderId: order.order_id,
-        paymentSignature: sig,
-        walletAddress: wallet.address,
-        cluster: state.cluster,
-        decimals: state.decimals,
-        initialSupply: supplyDigits,
-        revokeFreeze: state.revokeFreeze,
-        revokeMint: state.revokeMint,
-        revokeUpdate: state.revokeUpdate,
+      const mintAddress = prepared.mintKeypair.publicKey.toBase58();
+      const mintAttempt: MintAttempt = {
+        ...paidPending,
+        attemptId,
         mintKeypair: prepared.mintKeypair,
         metadata: prepared.metadata,
+        lastMintAddress: mintAddress,
       };
-      setPendingMint(mintAttempt);
+      setPendingMint({ ...paidPending, lastMintAddress: mintAddress });
 
       // 4. Creating Token — only after payment verified
       try {

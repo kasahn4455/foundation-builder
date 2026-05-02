@@ -309,11 +309,28 @@ export const saveTokenResult = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { data: order, error: loadErr } = await supabaseAdmin
       .from("orders")
-      .select("id, status, payment_signature, cluster")
+      .select("id, status, payment_signature, cluster, token_signature, mint_address, ata_address")
       .eq("id", data.order_id)
       .single();
 
     if (loadErr || !order) throw new Error("Order not found");
+    if (order.status === "minted") {
+      const sameResult =
+        order.payment_signature === data.payment_signature &&
+        order.token_signature === data.token_signature &&
+        order.mint_address === data.mint_address &&
+        order.ata_address === data.ata_address &&
+        order.cluster === data.cluster;
+      if (sameResult) {
+        console.info("[orders] saveTokenResult: idempotent duplicate ignored", {
+          order_id: order.id,
+          mint: data.mint_address,
+          token_signature: data.token_signature,
+        });
+        return { ok: true, already_saved: true as const };
+      }
+      throw new Error("Order already minted with a different token result");
+    }
     if (order.status !== "paid") throw new Error("Order is not paid");
     if (order.payment_signature !== data.payment_signature) {
       throw new Error("Payment signature mismatch");

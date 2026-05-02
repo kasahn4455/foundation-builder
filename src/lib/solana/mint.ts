@@ -167,6 +167,8 @@ export function generateMintKeypair(): Keypair {
 }
 
 export type MintTokenArgs = {
+  /** UI-level attempt id used only to correlate production logs across retry paths. */
+  clientAttemptId?: string;
   provider: SolanaProvider;
   payerAddress: string;
   cluster: Cluster;
@@ -218,6 +220,7 @@ export type MintTokenResult = {
  * `uri` field stored on-chain — the standard Solana / Metaplex pattern.
  */
 export async function mintToken({
+  clientAttemptId,
   provider,
   payerAddress,
   cluster,
@@ -232,7 +235,7 @@ export async function mintToken({
   const rpcUrl = rpcForCluster(cluster);
   // Single attempt id so every log line for this mint can be correlated
   // when multiple users (or retries) run concurrently in production.
-  const attemptId = Math.random().toString(36).slice(2, 10);
+  const attemptId = clientAttemptId ?? Math.random().toString(36).slice(2, 10);
   console.info("[mint] mintToken cluster=", cluster, "rpc=", rpcUrl);
   console.info("[mint] MINT_ATTEMPT_START", {
     attemptId,
@@ -401,11 +404,13 @@ export async function mintToken({
       });
     }
 
+    const blockhashRequestedAt = Date.now();
     const { blockhash, lastValidBlockHeight } = await getFreshBlockhash();
     console.info("[mint] MINT_TX_BLOCKHASH_READY", {
       attemptId,
       blockhash,
       lastValidBlockHeight,
+      elapsedMs: Date.now() - blockhashRequestedAt,
     });
 
     failurePoint = "buildTransaction";
@@ -587,11 +592,16 @@ export async function mintToken({
       attemptId,
       mint: mintPk.toBase58(),
       instructionCount: tx.instructions.length,
+      blockhashAgeMs: Date.now() - blockhashRequestedAt,
     });
     if (provider.signTransaction) {
       failurePoint = "signTransaction";
       const signed = await provider.signTransaction(tx);
-      console.info("[mint] MINT_TX_SIGNED", { attemptId, mint: mintPk.toBase58() });
+      console.info("[mint] MINT_TX_SIGNED", {
+        attemptId,
+        mint: mintPk.toBase58(),
+        blockhashAgeMs: Date.now() - blockhashRequestedAt,
+      });
 
       failurePoint = "sendRawTransaction";
       signature = await connection.sendRawTransaction(signed.serialize(), {
@@ -605,7 +615,11 @@ export async function mintToken({
     } else {
       throw new Error("Connected wallet does not support Solana transaction signing.");
     }
-    console.info("[mint] MINT_WALLET_RETURNED", { n: mintPopupN, signature });
+    console.info("[mint] MINT_WALLET_RETURNED", {
+      n: mintPopupN,
+      signature,
+      blockhashAgeMs: Date.now() - blockhashRequestedAt,
+    });
     console.info("[mint] MINT_TX_SENT", { attemptId, signature, mint: mintPk.toBase58() });
 
     failurePoint = "confirmTransaction";
@@ -630,6 +644,7 @@ export async function mintToken({
         confirmMsg,
       });
       let landed = false;
+      let onChainFailure: Error | null = null;
       // Up to ~12s of polling at 1s — covers typical RPC eventual-consistency.
       for (let attempt = 0; attempt < 12 && !landed; attempt++) {
         try {
@@ -644,9 +659,10 @@ export async function mintToken({
                 signature,
                 err: status.err,
               });
-              throw new Error(
+              onChainFailure = new Error(
                 `Mint transaction failed on-chain: ${JSON.stringify(status.err)}`,
               );
+              break;
             }
             const conf = status.confirmationStatus;
             if (conf === "confirmed" || conf === "finalized" || status.confirmations !== null) {
@@ -668,8 +684,10 @@ export async function mintToken({
             statusErr,
           });
         }
+        if (onChainFailure) break;
         await new Promise((r) => setTimeout(r, 1000));
       }
+      if (onChainFailure) throw onChainFailure;
       if (!landed) {
         // Re-throw the original confirm error so the caller's payment-preserved
         // retry path runs (and the friendly message stays consistent).

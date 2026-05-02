@@ -368,6 +368,7 @@ export async function mintToken({
   const metadataLen = METADATA_EXTENSION_PREFIX + packTokenMetadata(tokenMetadata).length;
   const accountSize = baseMintLen + metadataLen;
   const lamportsForMint = await connection.getMinimumBalanceForRentExemption(accountSize);
+  const lamportsForBaseMint = await connection.getMinimumBalanceForRentExemption(baseMintLen);
 
   const supplyBI = BigInt(initialSupply);
   const factor = BigInt(10) ** BigInt(decimals);
@@ -452,8 +453,14 @@ export async function mintToken({
       blockhash,
       lastValidBlockHeight,
     });
+    const instructionLabels: string[] = [];
+    const addInstruction = (label: string, ix: TransactionInstruction) => {
+      instructionLabels.push(label);
+      tx.add(ix);
+    };
 
-    tx.add(
+    addInstruction(
+      "create-mint-account",
       // 1. Allocate the mint account sized for MetadataPointer + TokenMetadata.
       SystemProgram.createAccount({
         fromPubkey: payer,
@@ -462,6 +469,9 @@ export async function mintToken({
         space: baseMintLen, // metadata extension is appended after init
         programId: TOKEN_2022_PROGRAM_ID,
       }),
+    );
+    addInstruction(
+      "initialize-metadata-pointer",
       // 2. Set the metadata pointer to point at the mint itself (self-hosted metadata).
       createInitializeMetadataPointerInstruction(
         mintPk,
@@ -469,6 +479,9 @@ export async function mintToken({
         mintPk,
         TOKEN_2022_PROGRAM_ID,
       ),
+    );
+    addInstruction(
+      "initialize-mint",
       // 3. Initialize the mint (must come AFTER all extension initializers).
       //    The mint authority and freeze authority assigned here are the REAL
       //    on-chain authorities. They may be revoked later in this same tx.
@@ -479,6 +492,9 @@ export async function mintToken({
         initialFreezeAuthority, // freeze authority (handles FREEZE REVOKE below)
         TOKEN_2022_PROGRAM_ID,
       ),
+    );
+    addInstruction(
+      "initialize-token-metadata",
       // 4. Initialize the on-chain Token Metadata (name/symbol/uri + update authority).
       //    The update authority assigned here IS the real on-chain authority.
       //    Wallets and explorers will treat `initialUpdateAuthority` as the
@@ -493,24 +509,17 @@ export async function mintToken({
         symbol: metadata.symbol,
         uri: metadata.uri,
       }),
-      // 5. Pay rent for the metadata extension bytes that were just appended.
-      //    SystemProgram.transfer "tops up" the mint account so it stays rent-exempt
-      //    after the metadata extension grew the account.
     );
 
-    // The metadata account grew the on-chain account; ensure it stays rent-exempt.
-    const totalLamportsRequired = await connection.getMinimumBalanceForRentExemption(
+    console.info("[mint] MINT_RENT_AND_SIZE", {
+      attemptId,
+      mint: mintPk.toBase58(),
+      baseMintLen,
+      metadataLen,
       accountSize,
-    );
-    if (totalLamportsRequired > lamportsForMint) {
-      tx.add(
-        SystemProgram.transfer({
-          fromPubkey: payer,
-          toPubkey: mintPk,
-          lamports: totalLamportsRequired - lamportsForMint,
-        }),
-      );
-    }
+      lamportsForBaseMint,
+      lamportsForMint,
+    });
 
     // 6. Create the ATA and mint the initial supply to it.
     tx.add(

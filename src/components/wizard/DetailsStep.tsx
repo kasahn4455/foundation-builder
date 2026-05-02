@@ -1224,10 +1224,12 @@ export function DetailsStep() {
         mintAddress={finalResult?.mintAddress}
         paymentSignature={finalResult?.paymentSignature ?? flow.paymentSignature}
         errorMessage={stableErrorMessage}
-        tokenName={state.tokenName}
-        tokenSymbol={state.tokenSymbol}
+        tokenName={isFinalSuccess ? finalResult.tokenName : state.tokenName}
+        tokenSymbol={isFinalSuccess ? finalResult.tokenSymbol : state.tokenSymbol}
         totalSol={isFinalSuccess ? finalResult.feePaid : totalPrice}
         cluster={isFinalSuccess ? finalResult.cluster : state.cluster}
+        explorerUrl={isFinalSuccess ? finalResult.explorerUrl : undefined}
+        raydiumUrl={isFinalSuccess ? finalResult.raydiumUrl : undefined}
         vanityProgress={isFinalSuccess ? undefined : vanityProgress ?? undefined}
         vanitySuffix={isFinalSuccess ? undefined : state.customAddress ? state.customAddressSuffix : undefined}
         onCancelVanity={() => {

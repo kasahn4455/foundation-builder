@@ -340,8 +340,6 @@ export function DetailsStep() {
 
     finalizeSuccess(runId, snapshot);
   }
-    });
-  }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {

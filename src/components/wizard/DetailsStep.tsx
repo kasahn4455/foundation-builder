@@ -1161,10 +1161,10 @@ export function DetailsStep() {
         errorMessage={stableErrorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
-        totalSol={finalResult?.feePaid ?? totalPrice}
-        cluster={finalResult?.cluster ?? state.cluster}
-        vanityProgress={vanityProgress ?? undefined}
-        vanitySuffix={state.customAddress ? state.customAddressSuffix : undefined}
+        totalSol={isFinalSuccess ? finalResult.feePaid : totalPrice}
+        cluster={isFinalSuccess ? finalResult.cluster : state.cluster}
+        vanityProgress={isFinalSuccess ? undefined : vanityProgress ?? undefined}
+        vanitySuffix={isFinalSuccess ? undefined : state.customAddress ? state.customAddressSuffix : undefined}
         onCancelVanity={() => {
           vanityHandleRef.current?.cancel();
         }}

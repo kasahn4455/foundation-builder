@@ -703,26 +703,40 @@ export async function mintToken({
         reason: stringifyTxError(simulationErr),
       });
     }
-    if (provider.signTransaction) {
-      failurePoint = "signTransaction";
-      const signed = await provider.signTransaction(tx);
-      console.info("[mint] MINT_TX_SIGNED", {
+    try {
+      if (provider.signTransaction) {
+        failurePoint = "signTransaction";
+        const signed = await provider.signTransaction(tx);
+        console.info("[mint] MINT_TX_SIGNED", {
+          attemptId,
+          mint: mintPk.toBase58(),
+          blockhashAgeMs: Date.now() - blockhashRequestedAt,
+        });
+
+        failurePoint = "sendRawTransaction";
+        signature = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          maxRetries: 5,
+        });
+      } else if (provider.signAndSendTransaction) {
+        failurePoint = "signAndSendTransaction";
+        const res = await provider.signAndSendTransaction(tx);
+        signature = res.signature;
+      } else {
+        throw new Error("Connected wallet does not support Solana transaction signing.");
+      }
+    } catch (sendErr) {
+      const logs = (sendErr as { logs?: string[] } | null)?.logs;
+      const failedInstruction = extractInstructionFailure(sendErr, logs, instructionLabels);
+      console.error("[mint] MINT_TX_SEND_OR_SIGN_FAILED", {
         attemptId,
         mint: mintPk.toBase58(),
-        blockhashAgeMs: Date.now() - blockhashRequestedAt,
+        failurePoint,
+        failedInstruction,
+        logs,
+        err: sendErr,
       });
-
-      failurePoint = "sendRawTransaction";
-      signature = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false,
-        maxRetries: 5,
-      });
-    } else if (provider.signAndSendTransaction) {
-      failurePoint = "signAndSendTransaction";
-      const res = await provider.signAndSendTransaction(tx);
-      signature = res.signature;
-    } else {
-      throw new Error("Connected wallet does not support Solana transaction signing.");
+      throw sendErr;
     }
     console.info("[mint] MINT_WALLET_RETURNED", {
       n: mintPopupN,

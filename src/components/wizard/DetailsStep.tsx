@@ -956,22 +956,26 @@ export function DetailsStep() {
         // Generate (or grind) the mint keypair, then upload off-chain JSON
         // metadata so the on-chain `uri` is real.
         setFlowStage(runId, "preparing", "devnet-preparing");
-        const mintKeypair = await generateMintKeypairForRun();
-        const prepared = await prepareMetadata(mintKeypair);
-        const devMintAttempt = {
+        const attemptId = nextMintAttemptId(runId, "devnet");
+        const devPending = buildPendingMintSnapshot({
           orderId: "devnet-test",
           paymentSignature: "devnet-test",
           walletAddress: wallet.address,
           cluster: state.cluster,
-          decimals: state.decimals,
+          feePaid: 0,
           initialSupply: supplyDigits,
-          revokeFreeze: state.revokeFreeze,
-          revokeMint: state.revokeMint,
-          revokeUpdate: state.revokeUpdate,
+        });
+        const mintKeypair = await generateMintKeypairForRun();
+        const devMint = mintKeypair.publicKey.toBase58();
+        const prepared = await prepareMetadata(mintKeypair, devPending, attemptId);
+        const devMintAttempt: MintAttempt = {
+          ...devPending,
+          attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          lastMintAddress: devMint,
         };
-        setPendingMint(devMintAttempt);
+        setPendingMint({ ...devPending, lastMintAddress: devMint });
         try {
           await completeMint(runId, devMintAttempt);
         } catch (mintErr) {

@@ -354,7 +354,8 @@ export const verifyPayment = createServerFn({ method: "POST" })
 
     console.info("[orders] verifyPayment ok", {
       order_id: order.id,
-      lamports: recipientDeltaLamports,
+      lamports: receivedLamports,
+      decision: "ACCEPT",
     });
     return { ok: true, order_id: order.id, already_verified: false as const };
   });

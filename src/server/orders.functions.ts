@@ -214,72 +214,45 @@ export const verifyPayment = createServerFn({ method: "POST" })
     const connection = new Connection(getRpc(data.cluster), "confirmed");
     const expectedLamports = Math.round(Number(order.total_fee_sol) * LAMPORTS_PER_SOL);
 
-    // Fetch on-chain transaction (parsed — gives us SystemProgram.transfer details directly)
-    const parsed = await connection.getParsedTransaction(data.payment_signature, {
+    // Fetch the canonical transaction form so account keys align exactly with
+    // meta.preBalances/meta.postBalances. Verification below uses ONLY the
+    // configured recipient wallet's balance increase; never sender/fee-payer delta.
+    const tx = await connection.getTransaction(data.payment_signature, {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
     });
 
-    if (!parsed) throw new Error("Transaction not found on-chain");
-    if (parsed.meta?.err) throw new Error("Transaction failed on-chain");
+    if (!tx) throw new Error("Transaction not found on-chain");
+    if (tx.meta?.err) throw new Error("Transaction failed on-chain");
 
     const senderPk = new PublicKey(data.wallet_address);
     const recipientPk = new PublicKey(recipient);
+    const recipientB58 = recipientPk.toBase58();
+    const senderB58 = senderPk.toBase58();
+    if (senderB58 === recipientB58) {
+      throw new Error(
+        "Platform wallet equals connected wallet — check PLATFORM_WALLET_* env (cannot pay yourself)",
+      );
+    }
 
-    // Resolve account list (parsed) — includes loaded addresses for v0 txs.
-    const acctKeys = parsed.transaction.message.accountKeys ?? [];
-    const allKeys: string[] = acctKeys.map((k: any) =>
-      typeof k.pubkey === "string" ? k.pubkey : k.pubkey?.toBase58?.() ?? "",
+    // Resolve the exact account-key list used by the balance arrays. For v0
+    // transactions this includes loaded lookup-table addresses from metadata.
+    const accountKeys = (tx.transaction.message as any).getAccountKeys({
+      accountKeysFromLookups: tx.meta?.loadedAddresses ?? undefined,
+    });
+    const allKeys: string[] = Array.from({ length: accountKeys.length }, (_, i) =>
+      accountKeys.get(i)?.toBase58?.() ?? "",
     );
     const recipientIdx = allKeys.findIndex((s) => s === recipientPk.toBase58());
     const senderIdx = allKeys.findIndex((s) => s === senderPk.toBase58());
-
-    // PRIMARY METHOD: sum SystemProgram.transfer lamports going to recipient.
-    // This is robust against fee-payer ambiguity and account-index confusion.
-    let transferredToRecipient = 0;
-    const recipientB58 = recipientPk.toBase58();
-    const senderB58 = senderPk.toBase58();
-    type ParsedIx = {
-      program?: string;
-      programId?: any;
-      parsed?: { type?: string; info?: { source?: string; destination?: string; lamports?: number } };
-    };
-    const collectIxs = (ixs: any[] | undefined): ParsedIx[] => (ixs ?? []) as ParsedIx[];
-    const topIxs = collectIxs(parsed.transaction.message.instructions as any[]);
-    const innerIxs = (parsed.meta?.innerInstructions ?? []).flatMap((g: any) =>
-      collectIxs(g.instructions),
-    );
-    for (const ix of [...topIxs, ...innerIxs]) {
-      if (ix.program !== "system") continue;
-      const t = ix.parsed?.type;
-      if (t !== "transfer" && t !== "transferWithSeed") continue;
-      const info = ix.parsed?.info;
-      if (!info) continue;
-      if (info.destination === recipientB58 && typeof info.lamports === "number") {
-        // Only count transfers originating from the connected wallet (sender).
-        // If sender doesn't match, still count — payer could route via a PDA — but
-        // we log it for visibility.
-        if (info.source !== senderB58) {
-          console.warn("[orders] verifyPayment transfer source != connected wallet", {
-            order_id: order.id,
-            source: info.source,
-            sender: senderB58,
-          });
-        }
-        transferredToRecipient += info.lamports;
-      }
-    }
-
-    // FALLBACK: balance-delta on recipient (only if no parsed transfer found,
-    // e.g. exotic instruction). Uses the correct recipient index — never the sender's.
-    let recipientDelta = 0;
-    if (recipientIdx >= 0) {
-      const pre = parsed.meta?.preBalances ?? [];
-      const post = parsed.meta?.postBalances ?? [];
-      recipientDelta = (post[recipientIdx] ?? 0) - (pre[recipientIdx] ?? 0);
-    }
+    const pre = tx.meta?.preBalances ?? [];
+    const post = tx.meta?.postBalances ?? [];
+    const recipientPreBalance = recipientIdx >= 0 ? pre[recipientIdx] : undefined;
+    const recipientPostBalance = recipientIdx >= 0 ? post[recipientIdx] : undefined;
     const receivedLamports =
-      transferredToRecipient > 0 ? transferredToRecipient : recipientDelta;
+      typeof recipientPreBalance === "number" && typeof recipientPostBalance === "number"
+        ? recipientPostBalance - recipientPreBalance
+        : NaN;
 
     console.info("[orders] verifyPayment audit", {
       order_id: order.id,

@@ -361,7 +361,52 @@ export async function mintToken({
   }
 
   try {
+    // STALE-MINT GUARD — if a previous (failed) attempt actually landed the
+    // SystemProgram.createAccount before failing, the mint account is now
+    // owned by Token-2022 and reusing this keypair would deterministically
+    // fail with "account in use". The retry path in DetailsStep generates a
+    // fresh keypair, but this defensive check makes the mode of failure
+    // unmistakable in logs and prevents the transaction from ever being
+    // signed against a contaminated address.
+    failurePoint = "preflightMintAccount";
+    try {
+      const existing = await connection.getAccountInfo(mintPk, "confirmed");
+      if (existing) {
+        console.error("[mint] STALE_MINT_ACCOUNT_DETECTED", {
+          attemptId,
+          mint: mintPk.toBase58(),
+          owner: existing.owner.toBase58(),
+          lamports: existing.lamports,
+        });
+        throw new Error(
+          "Internal: this mint address is already initialized on-chain. " +
+            "A fresh mint keypair must be generated before retrying. " +
+            "Your payment is preserved and you will not be charged again.",
+        );
+      }
+    } catch (preflightErr) {
+      // Only treat the "account exists" path as fatal; an RPC hiccup on the
+      // preflight read is non-fatal — we proceed and let the actual tx surface
+      // any real conflict.
+      if (
+        preflightErr instanceof Error &&
+        /already initialized on-chain/i.test(preflightErr.message)
+      ) {
+        throw preflightErr;
+      }
+      console.warn("[mint] preflight account check skipped (RPC error)", {
+        attemptId,
+        mint: mintPk.toBase58(),
+        err: preflightErr,
+      });
+    }
+
     const { blockhash, lastValidBlockHeight } = await getFreshBlockhash();
+    console.info("[mint] MINT_TX_BLOCKHASH_READY", {
+      attemptId,
+      blockhash,
+      lastValidBlockHeight,
+    });
 
     failurePoint = "buildTransaction";
     const tx = new Transaction({

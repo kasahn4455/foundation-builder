@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { X, Wallet, Download } from "lucide-react";
+import { X, Wallet, Download, ExternalLink } from "lucide-react";
 import { useWallet, type WalletKind } from "./WalletContext";
 
 const wallets: { kind: WalletKind; label: string; subtitle: string; emoji: string }[] = [
@@ -8,7 +8,7 @@ const wallets: { kind: WalletKind; label: string; subtitle: string; emoji: strin
 ];
 
 export function WalletPickerModal() {
-  const { isPickerOpen, closePicker, connect, isConnecting, detected } = useWallet();
+  const { isPickerOpen, closePicker, connect, isConnecting, detected, platform, openInWalletBrowser } = useWallet();
 
   useEffect(() => {
     if (!isPickerOpen) return;

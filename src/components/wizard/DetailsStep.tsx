@@ -454,7 +454,7 @@ export function DetailsStep() {
    * initialization time. The keypair is supplied by the caller so that the
    * vanity grinder can run first when Custom Token Address is enabled.
    */
-  async function prepareMetadata(mintKeypair: Keypair): Promise<{
+  async function prepareMetadata(mintKeypair: Keypair, attemptId?: string): Promise<{
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
   }> {
@@ -517,6 +517,7 @@ export function DetailsStep() {
         };
 
     console.info("[wizard] uploading metadata", {
+      attemptId,
       mint: mintAddr,
       hasLogo: Boolean(imageBase64),
       logoMime: imageMime,
@@ -545,6 +546,7 @@ export function DetailsStep() {
       // the modal — we DO NOT continue to mint with a placeholder URI.
       const reason = uploadErr instanceof Error ? uploadErr.message : "Unknown error";
       console.error("[wizard] METADATA_PREPARE_FAILED — mint will not proceed", {
+        attemptId,
         mint: mintAddr,
         reason,
       });
@@ -555,6 +557,7 @@ export function DetailsStep() {
 
     if (!res?.uri || !/^https:\/\//i.test(res.uri)) {
       console.error("[wizard] METADATA_URI_INVALID — mint will not proceed", {
+        attemptId,
         mint: mintAddr,
         res,
       });
@@ -564,6 +567,7 @@ export function DetailsStep() {
     }
 
     console.info("[wizard] METADATA_URI_READY", {
+      attemptId,
       mint: mintAddr,
       uri: res.uri,
       image_url: res.image_url,

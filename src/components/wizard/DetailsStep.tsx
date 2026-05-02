@@ -363,6 +363,13 @@ export function DetailsStep() {
     finalizeSuccess(runId, snapshot);
   }
 
+  function nextMintAttemptId(runId: number, label: string) {
+    const attemptId = `${runId}-${++mintAttemptSeqRef.current}-${label}-${Math.random().toString(36).slice(2, 8)}`;
+    activeMintAttemptIdRef.current = attemptId;
+    console.info("[wizard] fresh mint attempt allocated", { runId, attemptId, label });
+    return attemptId;
+  }
+
   async function completeMint(runId: number, args: MintAttempt): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
       console.warn("[wizard] duplicate completion ignored", {
@@ -371,6 +378,15 @@ export function DetailsStep() {
         alreadyCommitted: hasTerminalCommit(),
         orderId: args.orderId,
         reason: "mint-start-blocked-before-wallet-request",
+      });
+      return false;
+    }
+    if (activeMintAttemptIdRef.current !== args.attemptId) {
+      console.warn("[wizard] stale mint attempt ignored before wallet request", {
+        runId,
+        attemptId: args.attemptId,
+        activeAttemptId: activeMintAttemptIdRef.current,
+        orderId: args.orderId,
       });
       return false;
     }
@@ -411,9 +427,20 @@ export function DetailsStep() {
       });
       console.info("[wizard] phantom approval success", {
         runId,
+        attemptId: args.attemptId,
         orderId: args.orderId,
         signature: mintRes.signature,
       });
+      if (!isActiveRun(runId) || activeMintAttemptIdRef.current !== args.attemptId || hasTerminalCommit()) {
+        console.warn("[wizard] late mint success ignored", {
+          runId,
+          attemptId: args.attemptId,
+          activeAttemptId: activeMintAttemptIdRef.current,
+          orderId: args.orderId,
+          mint: mintRes.mintAddress,
+        });
+        return false;
+      }
       console.info("[wizard] mint success", {
         orderId: args.orderId,
         mint: mintRes.mintAddress,

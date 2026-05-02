@@ -322,6 +322,11 @@ export function DetailsStep() {
         mintKeypair: args.mintKeypair,
         metadata: args.metadata,
       });
+      console.info("[wizard] phantom approval success", {
+        runId,
+        orderId: args.orderId,
+        signature: mintRes.signature,
+      });
       console.info("[wizard] mint success", {
         orderId: args.orderId,
         mint: mintRes.mintAddress,

@@ -78,6 +78,32 @@ type CreateFlowState = {
   terminalSnapshot?: TerminalSnapshot;
 };
 
+type PendingMint = {
+  orderId: string;
+  paymentSignature: string;
+  walletAddress: string;
+  cluster: "devnet" | "mainnet";
+  decimals: number;
+  initialSupply: string;
+  revokeFreeze: boolean;
+  revokeMint: boolean;
+  revokeUpdate: boolean;
+  /**
+   * When true, server-side payment verification has not yet succeeded for
+   * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
+   * retry we MUST re-run verifyPayment first — never createOrder/sendPayment
+   * again — because verifyPayment is idempotent server-side for the same
+   * (order_id, signature) pair and will not re-charge the user.
+   */
+  needsVerify?: boolean;
+};
+
+type MintAttempt = PendingMint & {
+  attemptId: string;
+  mintKeypair: Keypair;
+  metadata: { name: string; symbol: string; uri: string };
+};
+
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
   const { wallet, provider, openPicker } = useWallet();
@@ -114,27 +140,9 @@ export function DetailsStep() {
    */
   const hasFinalizedRef = useRef(false);
   const mintCompletionInFlightRef = useRef(false);
-  const [pendingMint, setPendingMint] = useState<{
-    orderId: string;
-    paymentSignature: string;
-    walletAddress: string;
-    cluster: "devnet" | "mainnet";
-    decimals: number;
-    initialSupply: string;
-    revokeFreeze: boolean;
-    revokeMint: boolean;
-    revokeUpdate: boolean;
-    mintKeypair: Keypair;
-    metadata: { name: string; symbol: string; uri: string };
-    /**
-     * When true, server-side payment verification has not yet succeeded for
-     * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
-     * retry we MUST re-run verifyPayment first — never createOrder/sendPayment
-     * again — because verifyPayment is idempotent server-side for the same
-     * (order_id, signature) pair and will not re-charge the user.
-     */
-    needsVerify?: boolean;
-  } | null>(null);
+  const mintAttemptSeqRef = useRef(0);
+  const activeMintAttemptIdRef = useRef<string | null>(null);
+  const [pendingMint, setPendingMint] = useState<PendingMint | null>(null);
 
   // Safety net: if the user navigates away mid-grind (or the component
   // unmounts for any reason), terminate the worker so it doesn't keep burning

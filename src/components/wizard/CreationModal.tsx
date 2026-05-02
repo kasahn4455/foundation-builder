@@ -37,6 +37,14 @@ export type CreationModalProps = {
   tokenSymbol?: string;
   totalSol?: number;
   cluster?: "devnet" | "mainnet";
+  /**
+   * When the parent has committed a final immutable success snapshot, it
+   * passes the precomputed explorer / Raydium URLs from that snapshot here.
+   * The modal renders these directly instead of recomputing from `cluster` /
+   * `mintAddress` so the completed page is byte-stable across re-renders.
+   */
+  explorerUrl?: string;
+  raydiumUrl?: string;
   /** Live progress while the vanity-suffix grinder is running. */
   vanityProgress?: { attempts: number; elapsedMs: number };
   /** The suffix the user requested, shown in the progress UI. */

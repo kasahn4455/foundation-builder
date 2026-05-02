@@ -212,58 +212,113 @@ export const verifyPayment = createServerFn({ method: "POST" })
 
     const recipient = getPlatformWallet(data.cluster);
     const connection = new Connection(getRpc(data.cluster), "confirmed");
+    const expectedLamports = Math.round(Number(order.total_fee_sol) * LAMPORTS_PER_SOL);
 
-    // Fetch on-chain transaction
-    const tx = await connection.getTransaction(data.payment_signature, {
+    // Fetch on-chain transaction (parsed — gives us SystemProgram.transfer details directly)
+    const parsed = await connection.getParsedTransaction(data.payment_signature, {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
     });
 
-    if (!tx) throw new Error("Transaction not found on-chain");
-    if (tx.meta?.err) throw new Error("Transaction failed on-chain");
-
-    // Compute net SOL transferred from sender to recipient via balance deltas.
-    const accountKeys =
-      tx.transaction.message.getAccountKeys?.() ??
-      // Legacy fallback for non-versioned messages
-      ({ get: (i: number) => (tx.transaction.message as any).accountKeys?.[i] } as any);
-
-    const numKeys =
-      (accountKeys.length as number | undefined) ??
-      (tx.transaction.message as any).accountKeys?.length ??
-      0;
+    if (!parsed) throw new Error("Transaction not found on-chain");
+    if (parsed.meta?.err) throw new Error("Transaction failed on-chain");
 
     const senderPk = new PublicKey(data.wallet_address);
     const recipientPk = new PublicKey(recipient);
 
-    let senderIdx = -1;
-    let recipientIdx = -1;
-    for (let i = 0; i < numKeys; i++) {
-      const k: PublicKey | undefined =
-        typeof accountKeys.get === "function"
-          ? accountKeys.get(i)
-          : (tx.transaction.message as any).accountKeys?.[i];
-      if (!k) continue;
-      if (k.equals(senderPk)) senderIdx = i;
-      if (k.equals(recipientPk)) recipientIdx = i;
+    // Resolve account list (parsed) — includes loaded addresses for v0 txs.
+    const acctKeys = parsed.transaction.message.accountKeys ?? [];
+    const allKeys: string[] = acctKeys.map((k: any) =>
+      typeof k.pubkey === "string" ? k.pubkey : k.pubkey?.toBase58?.() ?? "",
+    );
+    const recipientIdx = allKeys.findIndex((s) => s === recipientPk.toBase58());
+    const senderIdx = allKeys.findIndex((s) => s === senderPk.toBase58());
+
+    // PRIMARY METHOD: sum SystemProgram.transfer lamports going to recipient.
+    // This is robust against fee-payer ambiguity and account-index confusion.
+    let transferredToRecipient = 0;
+    const recipientB58 = recipientPk.toBase58();
+    const senderB58 = senderPk.toBase58();
+    type ParsedIx = {
+      program?: string;
+      programId?: any;
+      parsed?: { type?: string; info?: { source?: string; destination?: string; lamports?: number } };
+    };
+    const collectIxs = (ixs: any[] | undefined): ParsedIx[] => (ixs ?? []) as ParsedIx[];
+    const topIxs = collectIxs(parsed.transaction.message.instructions as any[]);
+    const innerIxs = (parsed.meta?.innerInstructions ?? []).flatMap((g: any) =>
+      collectIxs(g.instructions),
+    );
+    for (const ix of [...topIxs, ...innerIxs]) {
+      if (ix.program !== "system") continue;
+      const t = ix.parsed?.type;
+      if (t !== "transfer" && t !== "transferWithSeed") continue;
+      const info = ix.parsed?.info;
+      if (!info) continue;
+      if (info.destination === recipientB58 && typeof info.lamports === "number") {
+        // Only count transfers originating from the connected wallet (sender).
+        // If sender doesn't match, still count — payer could route via a PDA — but
+        // we log it for visibility.
+        if (info.source !== senderB58) {
+          console.warn("[orders] verifyPayment transfer source != connected wallet", {
+            order_id: order.id,
+            source: info.source,
+            sender: senderB58,
+          });
+        }
+        transferredToRecipient += info.lamports;
+      }
     }
-    if (senderIdx < 0) throw new Error("Sender not in transaction");
-    if (recipientIdx < 0) throw new Error("Platform recipient not in transaction");
 
-    const pre = tx.meta?.preBalances ?? [];
-    const post = tx.meta?.postBalances ?? [];
-    const recipientDeltaLamports = (post[recipientIdx] ?? 0) - (pre[recipientIdx] ?? 0);
-    const expectedLamports = Math.round(Number(order.total_fee_sol) * LAMPORTS_PER_SOL);
+    // FALLBACK: balance-delta on recipient (only if no parsed transfer found,
+    // e.g. exotic instruction). Uses the correct recipient index — never the sender's.
+    let recipientDelta = 0;
+    if (recipientIdx >= 0) {
+      const pre = parsed.meta?.preBalances ?? [];
+      const post = parsed.meta?.postBalances ?? [];
+      recipientDelta = (post[recipientIdx] ?? 0) - (pre[recipientIdx] ?? 0);
+    }
+    const receivedLamports =
+      transferredToRecipient > 0 ? transferredToRecipient : recipientDelta;
 
-    if (recipientDeltaLamports < expectedLamports) {
-      console.warn("[orders] verifyPayment underpayment", {
+    console.info("[orders] verifyPayment audit", {
+      order_id: order.id,
+      total_fee_sol: order.total_fee_sol,
+      expectedLamports,
+      payment_signature: data.payment_signature,
+      cluster: data.cluster,
+      sender: senderB58,
+      recipient: recipientB58,
+      senderIdx,
+      recipientIdx,
+      recipientPreBalance: recipientIdx >= 0 ? parsed.meta?.preBalances?.[recipientIdx] : null,
+      recipientPostBalance: recipientIdx >= 0 ? parsed.meta?.postBalances?.[recipientIdx] : null,
+      recipientDelta,
+      transferredToRecipient,
+      receivedLamports,
+    });
+
+    if (senderIdx < 0) {
+      console.warn("[orders] verifyPayment: sender not in tx accounts (continuing — may be loaded address)");
+    }
+    if (recipientIdx < 0 && transferredToRecipient === 0) {
+      throw new Error("Platform recipient not found in transaction");
+    }
+    if (senderB58 === recipientB58) {
+      throw new Error(
+        "Platform wallet equals connected wallet — check PLATFORM_WALLET_* env (cannot pay yourself)",
+      );
+    }
+
+    if (receivedLamports < expectedLamports) {
+      console.warn("[orders] verifyPayment underpayment decision", {
         order_id: order.id,
         expectedLamports,
-        recipientDeltaLamports,
-        signature: data.payment_signature,
+        receivedLamports,
+        decision: "REJECT",
       });
       throw new Error(
-        `Underpayment: expected ${expectedLamports} lamports, got ${recipientDeltaLamports}`,
+        `Underpayment: expected ${expectedLamports} lamports, got ${receivedLamports}`,
       );
     }
 

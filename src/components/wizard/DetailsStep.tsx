@@ -83,6 +83,7 @@ type PendingMint = {
   paymentSignature: string;
   walletAddress: string;
   cluster: "devnet" | "mainnet";
+  feePaid: number;
   decimals: number;
   initialSupply: string;
   revokeFreeze: boolean;
@@ -341,7 +342,7 @@ export function DetailsStep() {
       paymentSignature,
       tokenSignature: mintRes.signature,
       cluster: args.cluster,
-      feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
+      feePaid: args.feePaid,
       tokenName: args.metadata.name,
       tokenSymbol: args.metadata.symbol,
       explorerUrl: explorerTokenUrl(mintRes.mintAddress, args.cluster),
@@ -368,6 +369,41 @@ export function DetailsStep() {
     activeMintAttemptIdRef.current = attemptId;
     console.info("[wizard] fresh mint attempt allocated", { runId, attemptId, label });
     return attemptId;
+  }
+
+  function buildPendingMintSnapshot(args: {
+    orderId: string;
+    paymentSignature: string;
+    walletAddress: string;
+    cluster: "devnet" | "mainnet";
+    feePaid: number;
+    initialSupply: string;
+    needsVerify?: boolean;
+  }): PendingMint {
+    return {
+      orderId: args.orderId,
+      paymentSignature: args.paymentSignature,
+      walletAddress: args.walletAddress,
+      cluster: args.cluster,
+      feePaid: args.feePaid,
+      decimals: state.decimals,
+      initialSupply: args.initialSupply,
+      revokeFreeze: state.revokeFreeze,
+      revokeMint: state.revokeMint,
+      revokeUpdate: state.revokeUpdate,
+      tokenName: state.tokenName.trim(),
+      tokenSymbol: state.tokenSymbol.trim(),
+      description: state.description || "",
+      socialsEnabled: state.socialsEnabled,
+      website: state.website || "",
+      twitter: state.twitter || "",
+      telegram: state.telegram || "",
+      discord: state.discord || "",
+      modifyCreator: state.modifyCreator,
+      creatorWalletAddress: wallet?.address ?? "",
+      tokenLogo: state.tokenLogo,
+      needsVerify: args.needsVerify,
+    };
   }
 
   async function completeMint(runId: number, args: MintAttempt): Promise<boolean> {

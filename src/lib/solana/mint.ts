@@ -692,10 +692,42 @@ export async function mintToken({
     let onChainFreezeAuthority: string | null = null;
     let onChainUpdateAuthority: string | null = null;
     try {
-      const [mintInfo, metadataInfo] = await Promise.all([
-        getMint(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
-        getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
-      ]);
+      // RPC EVENTUAL-CONSISTENCY RETRY — public RPCs (mainnet especially)
+      // sometimes return `null` from `getTokenMetadata` for a brief window
+      // immediately after the tx confirms, even though the metadata
+      // extension is on-chain. Without this retry, that intermittent
+      // `null` would surface to the user as "TokenMetadata extension
+      // missing" — i.e. "payment received — mint failed" — for a tx that
+      // actually succeeded. We poll up to ~10s before giving up.
+      let mintInfo: Awaited<ReturnType<typeof getMint>> | null = null;
+      let metadataInfo: Awaited<ReturnType<typeof getTokenMetadata>> | null = null;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        try {
+          [mintInfo, metadataInfo] = await Promise.all([
+            getMint(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
+            getTokenMetadata(connection, mintPk, "confirmed", TOKEN_2022_PROGRAM_ID),
+          ]);
+        } catch (readErr) {
+          console.warn("[mint] verify read transient error, retrying", {
+            attemptId,
+            attempt,
+            err: readErr,
+          });
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        if (mintInfo && metadataInfo) break;
+        console.warn("[mint] verify read returned partial state, retrying", {
+          attemptId,
+          attempt,
+          hasMintInfo: Boolean(mintInfo),
+          hasMetadataInfo: Boolean(metadataInfo),
+        });
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (!mintInfo) {
+        throw new Error("Mint account state unavailable from RPC after confirmation");
+      }
       if (!metadataInfo) {
         throw new Error("TokenMetadata extension missing from mint after confirmation");
       }
@@ -710,7 +742,8 @@ export async function mintToken({
       const expectedFreeze = finalFreezeAuthority ? finalFreezeAuthority.toBase58() : null;
       const expectedUpdate = finalUpdateAuthority ? finalUpdateAuthority.toBase58() : null;
 
-      console.info("[mint] authorities verified", {
+      console.info("[mint] AUTHORITIES_VERIFIED", {
+        attemptId,
         mint: mintPk.toBase58(),
         mintAuthority: { expected: expectedMint, onChain: onChainMintAuthority, revoke: revokeMint },
         freezeAuthority: { expected: expectedFreeze, onChain: onChainFreezeAuthority, revoke: revokeFreeze },
@@ -734,6 +767,7 @@ export async function mintToken({
       }
     } catch (verifyErr) {
       console.error("[mint] authority verification failed", {
+        attemptId,
         mint: mintPk.toBase58(),
         revokeMint,
         revokeFreeze,
@@ -742,6 +776,13 @@ export async function mintToken({
       });
       throw verifyErr;
     }
+
+    console.info("[mint] MINT_RESULT_READY", {
+      attemptId,
+      mint: mintPk.toBase58(),
+      ata: ata.toBase58(),
+      signature,
+    });
 
     return {
       mintAddress: mintPk.toBase58(),
@@ -752,27 +793,47 @@ export async function mintToken({
       metadataUpdateAuthority: onChainUpdateAuthority,
     };
   } catch (err) {
-    console.error("[mint] MINT_FAILED", { cluster, failurePoint, err });
+    console.error("[mint] MINT_FAILED", { attemptId, cluster, failurePoint, err });
+    // Attach `failurePoint` to the thrown error so the caller (DetailsStep)
+    // can surface it in audit logs and the UI. Without this, the existing
+    // `(mintErr as { failurePoint?: string }).failurePoint` reads always
+    // resolved to `undefined`, hiding WHERE intermittent failures occurred.
+    const attachFailurePoint = (e: unknown): unknown => {
+      if (e && typeof e === "object") {
+        try {
+          (e as { failurePoint?: string }).failurePoint = failurePoint;
+        } catch {
+          /* readonly object — ignore */
+        }
+      }
+      return e;
+    };
     const msg = err instanceof Error ? err.message : String(err);
     if (/block height exceeded|blockhash not found|TransactionExpired|expired/i.test(msg)) {
-      throw new Error(
-        cluster === "mainnet"
-          ? "Your mint transaction expired before Solana mainnet could confirm it (network was slow or signing took too long). Your payment is preserved — click Try Again to rebuild and resend the mint without paying again."
-          : "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
+      throw attachFailurePoint(
+        new Error(
+          cluster === "mainnet"
+            ? "Your mint transaction expired before Solana mainnet could confirm it (network was slow or signing took too long). Your payment is preserved — click Try Again to rebuild and resend the mint without paying again."
+            : "Mint transaction expired before it was confirmed. Please click Try Again to build a fresh mint transaction.",
+        ),
       );
     }
     if (/insufficient|0x1$|debit an account|InsufficientFundsForRent/i.test(msg)) {
-      throw new Error(
-        cluster === "mainnet"
-          ? "Insufficient SOL in your wallet to cover Solana network fees for the mint transaction (rent + signature fee). Add a small amount of SOL and click Try Again — your payment is preserved and you will not be charged again."
-          : "Insufficient devnet SOL to cover the mint transaction. Fund this wallet from a devnet faucet and try again.",
+      throw attachFailurePoint(
+        new Error(
+          cluster === "mainnet"
+            ? "Insufficient SOL in your wallet to cover Solana network fees for the mint transaction (rent + signature fee). Add a small amount of SOL and click Try Again — your payment is preserved and you will not be charged again."
+            : "Insufficient devnet SOL to cover the mint transaction. Fund this wallet from a devnet faucet and try again.",
+        ),
       );
     }
     if (cluster === "mainnet" && isMainnetRpcAccessError(err)) {
-      throw new Error(
-        "Solana mainnet is temporarily unreachable from your browser. Your payment is preserved — please wait a moment and click Try Again. You will not be charged again.",
+      throw attachFailurePoint(
+        new Error(
+          "Solana mainnet is temporarily unreachable from your browser. Your payment is preserved — please wait a moment and click Try Again. You will not be charged again.",
+        ),
       );
     }
-    throw err;
+    throw attachFailurePoint(err);
   }
 }

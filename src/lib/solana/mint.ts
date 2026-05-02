@@ -412,6 +412,8 @@ export async function mintToken({
     }
   }
 
+  let instructionLabels: string[] = [];
+
   try {
     // STALE-MINT GUARD — if a previous (failed) attempt actually landed the
     // SystemProgram.createAccount before failing, the mint account is now
@@ -468,7 +470,7 @@ export async function mintToken({
       blockhash,
       lastValidBlockHeight,
     });
-    const instructionLabels: string[] = [];
+    instructionLabels = [];
     const addInstruction = (label: string, ix: TransactionInstruction) => {
       instructionLabels.push(label);
       tx.add(ix);

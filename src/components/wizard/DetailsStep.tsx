@@ -662,8 +662,14 @@ export function DetailsStep() {
       // the user sees it the moment retry starts (and during any subsequent
       // failure), not only after the next failure renders. Skip on devnet
       // free-test where no real payment exists.
+      // Single retry-start write: set the preserved payment signature AND
+      // the next stage in one setFlow call so the modal re-renders once
+      // (instead of twice) at the start of a retry.
+      const retryNextStage: CreationStage =
+        pendingMint.needsVerify && !isDevnetTestRetry ? "processing" : "preparing";
       setFlow((prev) => ({
         ...prev,
+        stage: retryNextStage,
         paymentSignature: isDevnetTestRetry ? undefined : pendingMint.paymentSignature,
         terminalSnapshot: undefined,
       }));

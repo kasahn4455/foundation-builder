@@ -777,9 +777,11 @@ export async function mintToken({
           const status = statuses?.value?.[0];
           if (status) {
             if (status.err) {
+              const failedInstruction = extractInstructionFailure(status.err, null, instructionLabels);
               console.error("[mint] signature landed with on-chain error", {
                 attemptId,
                 signature,
+                failedInstruction,
                 err: status.err,
               });
               onChainFailure = new Error(

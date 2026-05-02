@@ -88,6 +88,7 @@ type PendingMint = {
   revokeFreeze: boolean;
   revokeMint: boolean;
   revokeUpdate: boolean;
+  lastMintAddress?: string;
   /**
    * When true, server-side payment verification has not yet succeeded for
    * this attempt (e.g. RPC hiccup right after the wallet sent SOL). On
@@ -306,11 +307,7 @@ export function DetailsStep() {
     });
   }
 
-  function commitFinalSuccess(
-    runId: number,
-    args: NonNullable<typeof pendingMint>,
-    mintRes: Awaited<ReturnType<typeof mintToken>>,
-  ) {
+  function commitFinalSuccess(runId: number, args: MintAttempt, mintRes: Awaited<ReturnType<typeof mintToken>>) {
     if (!isActiveRun(runId) || hasTerminalCommit() || hasFinalizedRef.current) {
       console.warn("[wizard] duplicate finalization ignored", {
         runId,
@@ -355,7 +352,7 @@ export function DetailsStep() {
     finalizeSuccess(runId, snapshot);
   }
 
-  async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
+  async function completeMint(runId: number, args: MintAttempt): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
       console.warn("[wizard] duplicate completion ignored", {
         runId,
@@ -389,6 +386,7 @@ export function DetailsStep() {
     });
     try {
       const mintRes = await mintToken({
+        clientAttemptId: args.attemptId,
         provider: provider!,
         payerAddress: args.walletAddress,
         cluster: args.cluster,

@@ -583,9 +583,15 @@ export async function mintToken({
             ((window as unknown as { __mint_popup_n?: number }).__mint_popup_n ?? 0) + 1)
         : 1;
     console.info("[mint] MINT_WALLET_POPUP", { n: mintPopupN, mint: mintPk.toBase58(), cluster });
+    console.info("[mint] MINT_TX_BUILD_COMPLETE", {
+      attemptId,
+      mint: mintPk.toBase58(),
+      instructionCount: tx.instructions.length,
+    });
     if (provider.signTransaction) {
       failurePoint = "signTransaction";
       const signed = await provider.signTransaction(tx);
+      console.info("[mint] MINT_TX_SIGNED", { attemptId, mint: mintPk.toBase58() });
 
       failurePoint = "sendRawTransaction";
       signature = await connection.sendRawTransaction(signed.serialize(), {
@@ -600,12 +606,76 @@ export async function mintToken({
       throw new Error("Connected wallet does not support Solana transaction signing.");
     }
     console.info("[mint] MINT_WALLET_RETURNED", { n: mintPopupN, signature });
+    console.info("[mint] MINT_TX_SENT", { attemptId, signature, mint: mintPk.toBase58() });
 
     failurePoint = "confirmTransaction";
-    await connection.confirmTransaction(
-      { signature, blockhash, lastValidBlockHeight },
-      "confirmed",
-    );
+    // CONFIRMATION HARDENING — public RPCs (especially mainnet) sometimes
+    // throw `TransactionExpired` from `confirmTransaction` even though the
+    // tx actually landed (WebSocket subscription drops, slow slot lookup).
+    // Before treating that as a real failure, we poll `getSignatureStatuses`
+    // — if the signature is on-chain and not errored, we accept the tx as
+    // confirmed. This eliminates the most common intermittent
+    // "payment received — mint failed" outcome.
+    try {
+      await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed",
+      );
+      console.info("[mint] MINT_TX_CONFIRMED", { attemptId, signature, source: "confirmTransaction" });
+    } catch (confirmErr) {
+      const confirmMsg = confirmErr instanceof Error ? confirmErr.message : String(confirmErr);
+      console.warn("[mint] confirmTransaction threw — verifying via getSignatureStatuses", {
+        attemptId,
+        signature,
+        confirmMsg,
+      });
+      let landed = false;
+      // Up to ~12s of polling at 1s — covers typical RPC eventual-consistency.
+      for (let attempt = 0; attempt < 12 && !landed; attempt++) {
+        try {
+          const statuses = await connection.getSignatureStatuses([signature], {
+            searchTransactionHistory: true,
+          });
+          const status = statuses?.value?.[0];
+          if (status) {
+            if (status.err) {
+              console.error("[mint] signature landed with on-chain error", {
+                attemptId,
+                signature,
+                err: status.err,
+              });
+              throw new Error(
+                `Mint transaction failed on-chain: ${JSON.stringify(status.err)}`,
+              );
+            }
+            const conf = status.confirmationStatus;
+            if (conf === "confirmed" || conf === "finalized" || status.confirmations !== null) {
+              landed = true;
+              console.info("[mint] MINT_TX_CONFIRMED", {
+                attemptId,
+                signature,
+                source: "getSignatureStatuses",
+                confirmationStatus: conf,
+              });
+              break;
+            }
+          }
+        } catch (statusErr) {
+          console.warn("[mint] getSignatureStatuses transient error, retrying", {
+            attemptId,
+            signature,
+            attempt,
+            statusErr,
+          });
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (!landed) {
+        // Re-throw the original confirm error so the caller's payment-preserved
+        // retry path runs (and the friendly message stays consistent).
+        throw confirmErr;
+      }
+    }
 
     // -------------------------------------------------------------------------
     // Post-confirmation verification (REAL check, not optimistic).

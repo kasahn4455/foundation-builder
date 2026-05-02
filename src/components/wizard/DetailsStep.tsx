@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";
@@ -277,18 +278,23 @@ export function DetailsStep() {
       mintAddress: snapshot.mintAddress,
     });
 
-    // Tear down any in-flight side-effects BEFORE flipping state so the
-    // completed page never observes a late vanity progress tick or a
-    // pending-mint object underneath it.
+    // Atomic terminal commit. We tear down side-effects (vanity worker,
+    // pendingMint) and flip to success in ONE synchronous batch via
+    // flushSync, so React produces exactly one render for the completed
+    // page — never an intermediate render where `flow.stage === "success"`
+    // is true but `vanityProgress` / `pendingMint` are still set
+    // underneath. The completed page is then driven solely by the frozen
+    // snapshot inside `flow.terminalSnapshot`.
     vanityHandleRef.current?.cancel();
     vanityHandleRef.current = null;
-    setVanityProgress(null);
-    setPendingMint(null);
-
-    setFlow({
-      stage: "success",
-      paymentSignature: snapshot.paymentSignature,
-      terminalSnapshot: { kind: "success", result: snapshot },
+    flushSync(() => {
+      setVanityProgress(null);
+      setPendingMint(null);
+      setFlow({
+        stage: "success",
+        paymentSignature: snapshot.paymentSignature,
+        terminalSnapshot: { kind: "success", result: snapshot },
+      });
     });
   }
 
@@ -578,14 +584,30 @@ export function DetailsStep() {
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
     });
-    setFlow({
-      stage: "preparing",
-      paymentSignature:
+    // ONE preparing-stage write at flow start. Previously this site set the
+    // flow twice (raw setFlow + setFlowStage) which produced two consecutive
+    // React renders for the same logical transition and contributed to the
+    // creating/completed-page churn the user reported.
+    setFlow((prev) => {
+      const nextPaymentSignature =
         pendingMint && pendingMint.paymentSignature !== "devnet-test"
           ? pendingMint.paymentSignature
-          : undefined,
+          : undefined;
+      if (
+        prev.stage === "preparing" &&
+        prev.paymentSignature === nextPaymentSignature &&
+        prev.terminalSnapshot === undefined
+      ) {
+        return prev;
+      }
+      console.info("[wizard] flow transition", {
+        runId,
+        from: prev.stage,
+        to: "preparing",
+        label: "create-flow-start",
+      });
+      return { stage: "preparing", paymentSignature: nextPaymentSignature };
     });
-    setFlowStage(runId, "preparing", "create-flow-start");
 
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
     // fresh mint keypair (random or vanity-grinded) on demand.
@@ -646,8 +668,14 @@ export function DetailsStep() {
       // the user sees it the moment retry starts (and during any subsequent
       // failure), not only after the next failure renders. Skip on devnet
       // free-test where no real payment exists.
+      // Single retry-start write: set the preserved payment signature AND
+      // the next stage in one setFlow call so the modal re-renders once
+      // (instead of twice) at the start of a retry.
+      const retryNextStage: CreationStage =
+        pendingMint.needsVerify && !isDevnetTestRetry ? "processing" : "preparing";
       setFlow((prev) => ({
         ...prev,
+        stage: retryNextStage,
         paymentSignature: isDevnetTestRetry ? undefined : pendingMint.paymentSignature,
         terminalSnapshot: undefined,
       }));
@@ -657,7 +685,8 @@ export function DetailsStep() {
         // idempotent for the same (order_id, signature) pair — it will NOT
         // re-charge the user.
         if (pendingMint.needsVerify && !isDevnetTestRetry) {
-          setFlowStage(runId, "processing", "retry-payment-verify");
+          // Stage was already set to "processing" in the consolidated retry-
+          // start write above, so no extra setFlowStage call here.
           await verifyPayment({
             data: {
               order_id: pendingMint.orderId,
@@ -683,6 +712,10 @@ export function DetailsStep() {
         //      (mintToken always fetches a fresh blockhash internally)
         // Payment state (orderId, paymentSignature) is preserved untouched —
         // user is NOT recharged.
+        // Stage may already be "preparing" (no-needsVerify path) or about to
+        // transition from "processing" → "preparing" after the verify above.
+        // setFlowStage no-ops when the stage is unchanged, so this is the
+        // single transition write for the preparing phase.
         setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
         const freshKeypair = await generateMintKeypairForRun();
         const freshMint = freshKeypair.publicKey.toBase58();
@@ -732,7 +765,9 @@ export function DetailsStep() {
       return;
     }
 
-    setFlow((prev) => ({ ...prev, paymentSignature: undefined, terminalSnapshot: undefined }));
+    // (No additional setFlow here — the start-of-flow `setFlow` above already
+    // cleared `paymentSignature`/`terminalSnapshot` for the non-pendingMint
+    // path. A second write here would just produce a redundant render.)
 
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
@@ -1067,16 +1102,22 @@ export function DetailsStep() {
   const modalStage: CreationStage = flow.stage === "idle" ? "preparing" : flow.stage;
   // Once success is committed, the completed page MUST render exclusively from
   // the frozen result snapshot. No live wizard state (cluster, totalPrice,
-  // vanityProgress, vanitySuffix) may leak into props after this point — that
-  // was the source of the final-page flicker after Phantom approval.
+  // vanityProgress, vanitySuffix, flow.paymentSignature) may leak into props
+  // after this point — that was the source of the final-page churn the user
+  // reported. We log the render source from a useEffect (not on every render)
+  // so unrelated parent re-renders don't spam the console.
   const isFinalSuccess = finalResult !== null;
-  if (isFinalSuccess) {
+  useEffect(() => {
+    if (!isFinalSuccess) return;
     console.info("[wizard] final page render source", {
       source: "frozen-snapshot",
       orderId: finalResult.orderId,
       mintAddress: finalResult.mintAddress,
     });
-  }
+    // finalResult is the frozen snapshot — once `isFinalSuccess` flips true,
+    // its identity does not change for the lifetime of this completed page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFinalSuccess]);
 
   return (
     <div className="space-y-6">
@@ -1226,7 +1267,13 @@ export function DetailsStep() {
         open={flow.stage !== "idle"}
         stage={modalStage}
         mintAddress={finalResult?.mintAddress}
-        paymentSignature={finalResult?.paymentSignature ?? flow.paymentSignature}
+        // After finalization, ALWAYS read paymentSignature from the frozen
+        // snapshot (even when the snapshot's value is `undefined` for devnet)
+        // — never fall back to live `flow.paymentSignature`. The fallback was
+        // letting late state writes leak into the completed page.
+        paymentSignature={
+          isFinalSuccess ? finalResult.paymentSignature : flow.paymentSignature
+        }
         errorMessage={stableErrorMessage}
         tokenName={isFinalSuccess ? finalResult.tokenName : state.tokenName}
         tokenSymbol={isFinalSuccess ? finalResult.tokenSymbol : state.tokenSymbol}

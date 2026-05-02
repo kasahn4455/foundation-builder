@@ -218,12 +218,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       isConnecting,
       isPickerOpen,
       detected,
+      platform,
       openPicker,
       closePicker,
       connect,
       disconnect,
+      openInWalletBrowser,
     }),
-    [wallet, provider, isConnecting, isPickerOpen, detected, openPicker, closePicker, connect, disconnect],
+    [wallet, provider, isConnecting, isPickerOpen, detected, platform, openPicker, closePicker, connect, disconnect, openInWalletBrowser],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

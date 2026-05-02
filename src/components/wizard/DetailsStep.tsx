@@ -278,18 +278,23 @@ export function DetailsStep() {
       mintAddress: snapshot.mintAddress,
     });
 
-    // Tear down any in-flight side-effects BEFORE flipping state so the
-    // completed page never observes a late vanity progress tick or a
-    // pending-mint object underneath it.
+    // Atomic terminal commit. We tear down side-effects (vanity worker,
+    // pendingMint) and flip to success in ONE synchronous batch via
+    // flushSync, so React produces exactly one render for the completed
+    // page — never an intermediate render where `flow.stage === "success"`
+    // is true but `vanityProgress` / `pendingMint` are still set
+    // underneath. The completed page is then driven solely by the frozen
+    // snapshot inside `flow.terminalSnapshot`.
     vanityHandleRef.current?.cancel();
     vanityHandleRef.current = null;
-    setVanityProgress(null);
-    setPendingMint(null);
-
-    setFlow({
-      stage: "success",
-      paymentSignature: snapshot.paymentSignature,
-      terminalSnapshot: { kind: "success", result: snapshot },
+    flushSync(() => {
+      setVanityProgress(null);
+      setPendingMint(null);
+      setFlow({
+        stage: "success",
+        paymentSignature: snapshot.paymentSignature,
+        terminalSnapshot: { kind: "success", result: snapshot },
+      });
     });
   }
 

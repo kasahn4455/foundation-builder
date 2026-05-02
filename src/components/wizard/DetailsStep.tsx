@@ -53,14 +53,18 @@ type TerminalSnapshot =
   | { kind: "success"; result: FinalSuccessResult }
   | { kind: "error"; message: string };
 
+type CreateFlowStage = "idle" | CreationStage;
+
+type CreateFlowState = {
+  stage: CreateFlowStage;
+  paymentSignature?: string;
+  terminalSnapshot?: TerminalSnapshot;
+};
+
 export function DetailsStep() {
   const { state, set, setStep, totalPrice } = useWizard();
   const { wallet, provider, openPicker } = useWallet();
-  const [stage, setStage] = useState<CreationStage | null>(null);
-  const [mintAddress, setMintAddress] = useState<string | undefined>();
-  const [paymentSig, setPaymentSig] = useState<string | undefined>();
-  const [errorMessage, setErrorMessage] = useState<string | undefined>();
-  const [terminalSnapshot, setTerminalSnapshot] = useState<TerminalSnapshot | null>(null);
+  const [flow, setFlow] = useState<CreateFlowState>({ stage: "idle" });
   const [vanityProgress, setVanityProgress] = useState<{ attempts: number; elapsedMs: number } | null>(null);
   const vanityHandleRef = useRef<VanityHandle | null>(null);
   const [suffixError, setSuffixError] = useState<string | undefined>();
@@ -155,6 +159,7 @@ export function DetailsStep() {
       });
       return;
     }
+    const nextStage: CreateFlowStage = next ?? "idle";
     if (hasTerminalCommit() && next !== null) {
       console.warn("[wizard] duplicate render-trigger path ignored", {
         runId,
@@ -164,26 +169,28 @@ export function DetailsStep() {
       });
       return;
     }
-    setStage((prev) => {
-      if (prev === next) return prev;
-      if (prev === "creating" && (next === "preparing" || next === "confirming" || next === "processing")) {
+    setFlow((prev) => {
+      if (prev.stage === nextStage) return prev;
+      if (prev.stage === "creating" && (next === "preparing" || next === "confirming" || next === "processing")) {
         console.warn("[wizard] duplicate render-trigger path ignored", {
           runId,
-          from: prev,
+          from: prev.stage,
           to: next,
           label,
           reason: "creating-stage-locked",
         });
         return prev;
       }
-      console.info("[wizard] flow transition", { runId, from: prev, to: next, label });
-      return next;
+      console.info("[wizard] flow transition", { runId, from: prev.stage, to: nextStage, label });
+      return nextStage === "idle"
+        ? { stage: "idle" }
+        : { ...prev, stage: nextStage };
     });
   }
 
   function commitFinalError(runId: number, message: string, label: string) {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate render-trigger path ignored", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         label,
@@ -194,12 +201,14 @@ export function DetailsStep() {
 
     hasCommittedErrorRef.current = true;
     console.info("[wizard] final error state committed", { runId, label, message });
-    setTerminalSnapshot({ kind: "error", message });
-    setErrorMessage(message);
-    setStage((prev) => {
-      if (prev === "error") return prev;
-      console.info("[wizard] flow transition", { runId, from: prev, to: "error", label });
-      return "error";
+    setFlow((prev) => {
+      if (prev.stage === "error" && prev.terminalSnapshot?.kind === "error") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev.stage, to: "error", label });
+      return {
+        stage: "error",
+        paymentSignature: prev.paymentSignature,
+        terminalSnapshot: { kind: "error", message },
+      };
     });
   }
 
@@ -209,7 +218,7 @@ export function DetailsStep() {
     mintRes: Awaited<ReturnType<typeof mintToken>>,
   ) {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate success state ignored", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
@@ -230,21 +239,21 @@ export function DetailsStep() {
       cluster: args.cluster,
     };
     console.info("[wizard] final success state committed", committed);
-    setTerminalSnapshot({ kind: "success", result: committed });
-    setMintAddress(committed.mintAddress);
-    setPaymentSig(committed.paymentSignature);
-    setErrorMessage(undefined);
     setPendingMint(null);
-    setStage((prev) => {
-      if (prev === "success") return prev;
-      console.info("[wizard] flow transition", { runId, from: prev, to: "success", label: "final-success-commit" });
-      return "success";
+    setFlow((prev) => {
+      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") return prev;
+      console.info("[wizard] flow transition", { runId, from: prev.stage, to: "success", label: "final-success-commit" });
+      return {
+        stage: "success",
+        paymentSignature: committed.paymentSignature,
+        terminalSnapshot: { kind: "success", result: committed },
+      };
     });
   }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
     if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate success state ignored", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
@@ -254,7 +263,7 @@ export function DetailsStep() {
       return false;
     }
     if (mintCompletionInFlightRef.current) {
-      console.warn("[wizard] duplicate create attempt blocked", {
+      console.warn("[wizard] duplicate completion ignored", {
         runId,
         orderId: args.orderId,
         reason: "mint-completion-already-in-flight",
@@ -464,10 +473,6 @@ export function DetailsStep() {
   }
 
   async function runCreation(runId: number) {
-    setErrorMessage(undefined);
-    setMintAddress(undefined);
-    setTerminalSnapshot(null);
-
     if (!wallet || !provider) {
       openPicker();
       return;
@@ -477,6 +482,13 @@ export function DetailsStep() {
       runId,
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
+    });
+    setFlow({
+      stage: "preparing",
+      paymentSignature:
+        pendingMint && pendingMint.paymentSignature !== "devnet-test"
+          ? pendingMint.paymentSignature
+          : undefined,
     });
     setFlowStage(runId, "preparing", "create-flow-start");
 
@@ -539,7 +551,11 @@ export function DetailsStep() {
       // the user sees it the moment retry starts (and during any subsequent
       // failure), not only after the next failure renders. Skip on devnet
       // free-test where no real payment exists.
-      setPaymentSig(isDevnetTestRetry ? undefined : pendingMint.paymentSignature);
+      setFlow((prev) => ({
+        ...prev,
+        paymentSignature: isDevnetTestRetry ? undefined : pendingMint.paymentSignature,
+        terminalSnapshot: undefined,
+      }));
       try {
         // If a previous attempt sent the payment but verifyPayment failed
         // (e.g. RPC hiccup), re-run verifyPayment first. The server is
@@ -621,7 +637,7 @@ export function DetailsStep() {
       return;
     }
 
-    setPaymentSig(undefined);
+    setFlow((prev) => ({ ...prev, paymentSignature: undefined, terminalSnapshot: undefined }));
 
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");
@@ -785,7 +801,7 @@ export function DetailsStep() {
         cluster: state.cluster,
       });
       console.info("[wizard] payment success", { orderId: order.order_id, sig });
-      setPaymentSig(sig);
+      setFlow((prev) => ({ ...prev, paymentSignature: sig, terminalSnapshot: undefined }));
 
       // 3. Processing — backend verifies on-chain. If this step fails AFTER
       // payment was sent (RPC hiccup, transient backend error), seed
@@ -902,15 +918,16 @@ export function DetailsStep() {
     // Flips in the same tick as the click so a fast double-click (or any
     // duplicate handler invocation) cannot start a second runCreation()
     // before the first one calls setStage(...) and disables the button.
+    const currentStage = flow.stage;
     console.info("[wizard] create button click start", {
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
-      stage,
+      stage: currentStage,
     });
-    if (stage !== null && stage !== "error") {
+    if (currentStage !== "idle" && currentStage !== "error") {
       console.warn("[wizard] duplicate create attempt blocked", {
         reason: "modal-state-not-retryable",
-        stage,
+        stage: currentStage,
         hasPendingMint: Boolean(pendingMint),
       });
       return;
@@ -918,7 +935,7 @@ export function DetailsStep() {
     if (isRunningRef.current || actionLocked) {
       console.warn("[wizard] duplicate create attempt blocked", {
         reason: "action-lock-active",
-        stage,
+        stage: currentStage,
         hasPendingMint: Boolean(pendingMint),
       });
       return;
@@ -931,7 +948,7 @@ export function DetailsStep() {
     hasCommittedSuccessRef.current = false;
     hasCommittedErrorRef.current = false;
     mintCompletionInFlightRef.current = false;
-    console.info("[wizard] action lock set", { runId });
+    console.info("[wizard] create lock acquired", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
       runId,
       cluster: state.cluster,
@@ -945,9 +962,9 @@ export function DetailsStep() {
     });
   }
 
-  const finalResult = terminalSnapshot?.kind === "success" ? terminalSnapshot.result : null;
-  const stableErrorMessage = terminalSnapshot?.kind === "error" ? terminalSnapshot.message : errorMessage;
-  const modalStage: CreationStage = terminalSnapshot?.kind ?? stage ?? "preparing";
+  const finalResult = flow.terminalSnapshot?.kind === "success" ? flow.terminalSnapshot.result : null;
+  const stableErrorMessage = flow.terminalSnapshot?.kind === "error" ? flow.terminalSnapshot.message : undefined;
+  const modalStage: CreationStage = flow.stage === "idle" ? "preparing" : flow.stage;
 
   return (
     <div className="space-y-6">
@@ -1078,7 +1095,7 @@ export function DetailsStep() {
         </button>
         <button
           onClick={handleCreate}
-          disabled={actionLocked || stage !== null}
+          disabled={actionLocked || flow.stage !== "idle"}
           className="btn-primary w-full sm:w-auto rounded-full bg-gradient-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-glow disabled:opacity-70"
         >
           {wallet
@@ -1094,10 +1111,10 @@ export function DetailsStep() {
       <p className="text-center text-xs text-muted-foreground pt-2">24/7 Support Available</p>
 
       <CreationModal
-        open={stage !== null}
+        open={flow.stage !== "idle"}
         stage={modalStage}
-        mintAddress={finalResult?.mintAddress ?? mintAddress}
-        paymentSignature={finalResult?.paymentSignature ?? paymentSig}
+        mintAddress={finalResult?.mintAddress}
+        paymentSignature={finalResult?.paymentSignature ?? flow.paymentSignature}
         errorMessage={stableErrorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
@@ -1108,7 +1125,7 @@ export function DetailsStep() {
         onCancelVanity={() => {
           vanityHandleRef.current?.cancel();
         }}
-        onClose={() => setStage(null)}
+        onClose={() => setFlow({ stage: "idle" })}
         onRetry={handleCreate}
       />
     </div>

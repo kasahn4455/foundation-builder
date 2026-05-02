@@ -725,11 +725,18 @@ export function DetailsStep() {
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
     // fresh mint keypair (random or vanity-grinded) on demand.
     const onMobile = isLikelyMobile();
-    const generateMintKeypairForRun = async (): Promise<Keypair> => {
-      if (!state.customAddress) return generateMintKeypair();
+    const generateMintKeypairForRun = async (snapshot: PendingMint, attemptId: string): Promise<Keypair> => {
+      if (!snapshot.customAddress) return generateMintKeypair();
+      console.info("[wizard] vanity generation start", {
+        runId,
+        attemptId,
+        orderId: snapshot.orderId,
+        cluster: snapshot.cluster,
+        suffix: snapshot.customAddressSuffix,
+      });
       setVanityProgress({ attempts: 0, elapsedMs: 0 });
       const handle = grindVanityMintKeypair({
-        suffix: state.customAddressSuffix.trim(),
+        suffix: snapshot.customAddressSuffix,
         caseSensitive: true,
         maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
         maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
@@ -747,7 +754,24 @@ export function DetailsStep() {
       vanityHandleRef.current = handle;
       try {
         const kp = await handle.promise;
+        console.info("[wizard] vanity generation success", {
+          runId,
+          attemptId,
+          orderId: snapshot.orderId,
+          mint: kp.publicKey.toBase58(),
+          suffix: snapshot.customAddressSuffix,
+        });
         return kp;
+      } catch (vanityErr) {
+        const reason = vanityErr instanceof Error ? vanityErr.message : String(vanityErr);
+        console.error("[wizard] VANITY_GENERATION_FAILED — retry state remains clean", {
+          runId,
+          attemptId,
+          orderId: snapshot.orderId,
+          suffix: snapshot.customAddressSuffix,
+          err: vanityErr,
+        });
+        throw new Error(`Custom token address generation failed before minting started. ${reason}`);
       } finally {
         vanityHandleRef.current = null;
         if (isActiveRun(runId) && !hasTerminalCommit()) {

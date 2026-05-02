@@ -679,7 +679,8 @@ export function DetailsStep() {
         // idempotent for the same (order_id, signature) pair — it will NOT
         // re-charge the user.
         if (pendingMint.needsVerify && !isDevnetTestRetry) {
-          setFlowStage(runId, "processing", "retry-payment-verify");
+          // Stage was already set to "processing" in the consolidated retry-
+          // start write above, so no extra setFlowStage call here.
           await verifyPayment({
             data: {
               order_id: pendingMint.orderId,

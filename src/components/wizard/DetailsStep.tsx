@@ -578,14 +578,30 @@ export function DetailsStep() {
       cluster: state.cluster,
       hasPendingMint: Boolean(pendingMint),
     });
-    setFlow({
-      stage: "preparing",
-      paymentSignature:
+    // ONE preparing-stage write at flow start. Previously this site set the
+    // flow twice (raw setFlow + setFlowStage) which produced two consecutive
+    // React renders for the same logical transition and contributed to the
+    // creating/completed-page churn the user reported.
+    setFlow((prev) => {
+      const nextPaymentSignature =
         pendingMint && pendingMint.paymentSignature !== "devnet-test"
           ? pendingMint.paymentSignature
-          : undefined,
+          : undefined;
+      if (
+        prev.stage === "preparing" &&
+        prev.paymentSignature === nextPaymentSignature &&
+        prev.terminalSnapshot === undefined
+      ) {
+        return prev;
+      }
+      console.info("[wizard] flow transition", {
+        runId,
+        from: prev.stage,
+        to: "preparing",
+        label: "create-flow-start",
+      });
+      return { stage: "preparing", paymentSignature: nextPaymentSignature };
     });
-    setFlowStage(runId, "preparing", "create-flow-start");
 
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
     // fresh mint keypair (random or vanity-grinded) on demand.

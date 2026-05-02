@@ -855,7 +855,7 @@ export function DetailsStep() {
         // single transition write for the preparing phase.
         setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
         const attemptId = nextMintAttemptId(runId, "retry");
-        const freshKeypair = await generateMintKeypairForRun();
+        const freshKeypair = await generateMintKeypairForRun(pendingMint, attemptId);
         const freshMint = freshKeypair.publicKey.toBase58();
         console.info("[wizard] retry: generated fresh mint keypair", {
           orderId: pendingMint.orderId,
@@ -1014,7 +1014,7 @@ export function DetailsStep() {
           feePaid: 0,
           initialSupply: supplyDigits,
         });
-        const mintKeypair = await generateMintKeypairForRun();
+        const mintKeypair = await generateMintKeypairForRun(devPending, attemptId);
         const devMint = mintKeypair.publicKey.toBase58();
         const prepared = await prepareMetadata(mintKeypair, devPending, attemptId);
         const devMintAttempt: MintAttempt = {
@@ -1051,7 +1051,7 @@ export function DetailsStep() {
         feePaid: totalPrice,
         initialSupply: supplyDigits,
       });
-      const mintKeypair = await generateMintKeypairForRun();
+      const mintKeypair = await generateMintKeypairForRun(initialSnapshot, attemptId);
       const [order, prepared] = await Promise.all([
         createOrder({
           data: {

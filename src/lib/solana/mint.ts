@@ -703,33 +703,6 @@ export async function mintToken({
         reason: stringifyTxError(simulationErr),
       });
     }
-    // Helper: report which required signers actually have signatures present
-    // on a Transaction. Some wallet builds (notably older Phantom mobile)
-    // strip prior partial signatures during signTransaction, leaving the mint
-    // signer empty — which then fails sendRawTransaction with a cryptic
-    // "Signature verification failed" / "Missing signature" error. Logging
-    // this lets us see the divergence point between successful and failed
-    // attempts deterministically.
-    const inspectSignatures = (label: string, target: Transaction) => {
-      const sigInfo = target.signatures.map((s) => ({
-        pubkey: s.publicKey.toBase58(),
-        hasSignature: Boolean(s.signature),
-      }));
-      const mintSigner = sigInfo.find((s) => s.pubkey === mintPk.toBase58());
-      const payerSigner = sigInfo.find((s) => s.pubkey === payer.toBase58());
-      console.info("[mint] MINT_TX_SIGNATURE_STATE", {
-        attemptId,
-        label,
-        mint: mintPk.toBase58(),
-        mintSignerPresent: mintSigner?.hasSignature ?? false,
-        payerSignerPresent: payerSigner?.hasSignature ?? false,
-        signers: sigInfo,
-      });
-      return { mintSignerPresent: mintSigner?.hasSignature ?? false };
-    };
-
-    inspectSignatures("after-partial-sign", tx);
-
     try {
       if (provider.signTransaction) {
         failurePoint = "signTransaction";
@@ -740,20 +713,6 @@ export async function mintToken({
           blockhashAgeMs: Date.now() - blockhashRequestedAt,
         });
 
-        // DEFENSIVE: some wallets discard prior partial signatures during
-        // signTransaction. If the mint signer's signature is missing on the
-        // returned object, re-apply it BEFORE serialize/send. This is a
-        // no-op when the wallet preserved the signature (the common path).
-        const { mintSignerPresent } = inspectSignatures("after-wallet-sign", signed);
-        if (!mintSignerPresent) {
-          console.warn("[mint] WALLET_DROPPED_MINT_PARTIAL_SIG — re-applying", {
-            attemptId,
-            mint: mintPk.toBase58(),
-          });
-          signed.partialSign(mintKeypair);
-          inspectSignatures("after-reapply-mint-sig", signed);
-        }
-
         failurePoint = "sendRawTransaction";
         signature = await connection.sendRawTransaction(signed.serialize(), {
           skipPreflight: false,
@@ -761,14 +720,7 @@ export async function mintToken({
         });
       } else if (provider.signAndSendTransaction) {
         failurePoint = "signAndSendTransaction";
-        // Pass the mint keypair as an explicit signer when the wallet API
-        // accepts options. Phantom/Solflare honor this; wallets that ignore
-        // the second arg still receive the already-partial-signed tx.
-        const signAndSend = provider.signAndSendTransaction as (
-          t: Transaction,
-          opts?: { signers?: Keypair[] },
-        ) => Promise<{ signature: string }>;
-        const res = await signAndSend(tx, { signers: [mintKeypair] });
+        const res = await provider.signAndSendTransaction(tx);
         signature = res.signature;
       } else {
         throw new Error("Connected wallet does not support Solana transaction signing.");

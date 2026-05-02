@@ -367,14 +367,29 @@ export async function mintToken({
   const METADATA_EXTENSION_PREFIX = 4;
   const metadataLen = METADATA_EXTENSION_PREFIX + packTokenMetadata(tokenMetadata).length;
   const accountSize = baseMintLen + metadataLen;
-  const lamportsForMint = await connection.getMinimumBalanceForRentExemption(accountSize);
-  const lamportsForBaseMint = await connection.getMinimumBalanceForRentExemption(baseMintLen);
+  let failurePoint = "prepare";
+  let lamportsForMint = 0;
+  let lamportsForBaseMint = 0;
+  try {
+    failurePoint = "rentExemption";
+    [lamportsForMint, lamportsForBaseMint] = await Promise.all([
+      connection.getMinimumBalanceForRentExemption(accountSize),
+      connection.getMinimumBalanceForRentExemption(baseMintLen),
+    ]);
+  } catch (rentErr) {
+    console.error("[mint] rent exemption lookup failed", {
+      attemptId,
+      mint: mintPk.toBase58(),
+      accountSize,
+      baseMintLen,
+      err: rentErr,
+    });
+    throw rentErr;
+  }
 
   const supplyBI = BigInt(initialSupply);
   const factor = BigInt(10) ** BigInt(decimals);
   const baseUnits = supplyBI * factor;
-
-  let failurePoint = "prepare";
 
   async function getFreshBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     failurePoint = "getLatestBlockhash";

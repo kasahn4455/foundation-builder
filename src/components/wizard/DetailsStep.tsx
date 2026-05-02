@@ -104,6 +104,14 @@ export function DetailsStep() {
   const nextRunIdRef = useRef(0);
   const hasCommittedSuccessRef = useRef(false);
   const hasCommittedErrorRef = useRef(false);
+  /**
+   * The single source of truth for "is the completed page already locked in?".
+   * Distinct from `hasCommittedSuccessRef` (kept for back-compat with existing
+   * audit logs) so any new caller has one obvious gate to consult. Once true,
+   * NO further async callback — phantom signature, save-token-result, vanity
+   * progress, late RPC settle — may transition the flow.
+   */
+  const hasFinalizedRef = useRef(false);
   const mintCompletionInFlightRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;

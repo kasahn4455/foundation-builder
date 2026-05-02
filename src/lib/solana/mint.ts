@@ -536,8 +536,9 @@ export async function mintToken({
       lamportsForMint,
     });
 
-    // 6. Create the ATA and mint the initial supply to it.
-    tx.add(
+    // 5. Create the ATA and mint the initial supply to it.
+    addInstruction(
+      "create-associated-token-account",
       createAssociatedTokenAccountInstruction(
         payer,
         ata,
@@ -545,6 +546,9 @@ export async function mintToken({
         mintPk,
         TOKEN_2022_PROGRAM_ID,
       ),
+    );
+    addInstruction(
+      "mint-initial-supply",
       createMintToInstruction(
         mintPk,
         ata,
@@ -570,7 +574,8 @@ export async function mintToken({
         oldAuthority: initialFreezeAuthority.toBase58(),
         newAuthority: null,
       });
-      tx.add(
+      addInstruction(
+        "revoke-freeze-authority",
         createSetAuthorityInstruction(
           mintPk,
           initialFreezeAuthority,
@@ -594,7 +599,8 @@ export async function mintToken({
         oldAuthority: initialUpdateAuthority.toBase58(),
         newAuthority: null,
       });
-      tx.add(
+      addInstruction(
+        "revoke-update-authority",
         createUpdateMetadataAuthorityInstruction({
           programId: TOKEN_2022_PROGRAM_ID,
           metadata: mintPk,
@@ -616,7 +622,8 @@ export async function mintToken({
         oldAuthority: initialMintAuthority.toBase58(),
         newAuthority: null,
       });
-      tx.add(
+      addInstruction(
+        "revoke-mint-authority",
         createSetAuthorityInstruction(
           mintPk,
           initialMintAuthority,

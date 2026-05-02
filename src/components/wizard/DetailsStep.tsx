@@ -100,6 +100,8 @@ type PendingMint = {
   modifyCreator: boolean;
   creatorWalletAddress: string;
   tokenLogo?: File;
+  customAddress: boolean;
+  customAddressSuffix: string;
   lastMintAddress?: string;
   /**
    * When true, server-side payment verification has not yet succeeded for
@@ -115,6 +117,7 @@ type MintAttempt = PendingMint & {
   attemptId: string;
   mintKeypair: Keypair;
   metadata: { name: string; symbol: string; uri: string };
+  preservedPaymentRetry: boolean;
 };
 
 export function DetailsStep() {
@@ -409,6 +412,8 @@ export function DetailsStep() {
       modifyCreator: state.modifyCreator,
       creatorWalletAddress: wallet?.address ?? "",
       tokenLogo: state.tokenLogo ?? undefined,
+      customAddress: state.customAddress,
+      customAddressSuffix: state.customAddressSuffix.trim(),
       needsVerify: args.needsVerify,
     };
   }

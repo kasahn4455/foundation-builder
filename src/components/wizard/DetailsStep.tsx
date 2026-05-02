@@ -320,10 +320,17 @@ export function DetailsStep() {
   }
 
   function commitFinalSuccess(runId: number, args: MintAttempt, mintRes: Awaited<ReturnType<typeof mintToken>>) {
-    if (!isActiveRun(runId) || hasTerminalCommit() || hasFinalizedRef.current) {
+    if (
+      !isActiveRun(runId) ||
+      activeMintAttemptIdRef.current !== args.attemptId ||
+      hasTerminalCommit() ||
+      hasFinalizedRef.current
+    ) {
       console.warn("[wizard] duplicate finalization ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
+        attemptId: args.attemptId,
+        activeAttemptId: activeMintAttemptIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
         alreadyFinalized: hasFinalizedRef.current,
         orderId: args.orderId,
@@ -1056,9 +1063,9 @@ export function DetailsStep() {
         await verifyPayment({
           data: {
             order_id: order.order_id,
-            wallet_address: wallet.address,
+            wallet_address: paidPending.walletAddress,
             payment_signature: sig,
-            cluster: state.cluster,
+            cluster: paidPending.cluster,
           },
         });
         console.info("[wizard] payment verified", {
@@ -1071,7 +1078,7 @@ export function DetailsStep() {
         console.error("[wizard] PAYMENT_OK_VERIFY_FAILED — payment preserved, retry will re-verify (no recharge)", {
           orderId: order.order_id,
           paymentSignature: sig,
-          cluster: state.cluster,
+          cluster: paidPending.cluster,
           err: verifyErr,
         });
         setPendingMint({

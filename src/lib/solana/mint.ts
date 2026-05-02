@@ -644,6 +644,7 @@ export async function mintToken({
         confirmMsg,
       });
       let landed = false;
+      let onChainFailure: Error | null = null;
       // Up to ~12s of polling at 1s — covers typical RPC eventual-consistency.
       for (let attempt = 0; attempt < 12 && !landed; attempt++) {
         try {
@@ -658,9 +659,10 @@ export async function mintToken({
                 signature,
                 err: status.err,
               });
-              throw new Error(
+              onChainFailure = new Error(
                 `Mint transaction failed on-chain: ${JSON.stringify(status.err)}`,
               );
+              break;
             }
             const conf = status.confirmationStatus;
             if (conf === "confirmed" || conf === "finalized" || status.confirmations !== null) {
@@ -682,8 +684,10 @@ export async function mintToken({
             statusErr,
           });
         }
+        if (onChainFailure) break;
         await new Promise((r) => setTimeout(r, 1000));
       }
+      if (onChainFailure) throw onChainFailure;
       if (!landed) {
         // Re-throw the original confirm error so the caller's payment-preserved
         // retry path runs (and the friendly message stays consistent).

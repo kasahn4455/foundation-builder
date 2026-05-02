@@ -100,6 +100,8 @@ type PendingMint = {
   modifyCreator: boolean;
   creatorWalletAddress: string;
   tokenLogo?: File;
+  customAddress: boolean;
+  customAddressSuffix: string;
   lastMintAddress?: string;
   /**
    * When true, server-side payment verification has not yet succeeded for
@@ -115,6 +117,7 @@ type MintAttempt = PendingMint & {
   attemptId: string;
   mintKeypair: Keypair;
   metadata: { name: string; symbol: string; uri: string };
+  preservedPaymentRetry: boolean;
 };
 
 export function DetailsStep() {
@@ -409,6 +412,8 @@ export function DetailsStep() {
       modifyCreator: state.modifyCreator,
       creatorWalletAddress: wallet?.address ?? "",
       tokenLogo: state.tokenLogo ?? undefined,
+      customAddress: state.customAddress,
+      customAddressSuffix: state.customAddressSuffix.trim(),
       needsVerify: args.needsVerify,
     };
   }
@@ -443,6 +448,18 @@ export function DetailsStep() {
     }
     mintCompletionInFlightRef.current = true;
     setFlowStage(runId, "creating", "mint-started");
+    console.info("[wizard] PAID_MINT_ATTEMPT_START", {
+      runId,
+      attemptId: args.attemptId,
+      orderId: args.orderId,
+      cluster: args.cluster,
+      preservedPaymentRetry: args.preservedPaymentRetry,
+      paymentSignature: args.paymentSignature,
+      customAddress: args.customAddress,
+      customAddressSuffix: args.customAddress ? args.customAddressSuffix : undefined,
+      metadataUri: args.metadata.uri,
+      mint: args.mintKeypair.publicKey.toBase58(),
+    });
     console.info("[wizard] mint started", {
       runId,
       orderId: args.orderId,
@@ -544,6 +561,11 @@ export function DetailsStep() {
     const tokenSymbol = snapshot?.tokenSymbol ?? state.tokenSymbol.trim();
     const tokenLogo = snapshot?.tokenLogo ?? state.tokenLogo;
     const socialsEnabled = snapshot?.socialsEnabled ?? state.socialsEnabled;
+    const hasPaidOrder = Boolean(
+      snapshot &&
+        snapshot.paymentSignature !== "prepayment" &&
+        snapshot.paymentSignature !== "devnet-test",
+    );
 
     // Validate the logo BEFORE base64-encoding so a huge/wrong-type file
     // surfaces a clean error instead of OOM-ing the encoder or producing a
@@ -604,6 +626,9 @@ export function DetailsStep() {
 
     console.info("[wizard] uploading metadata", {
       attemptId,
+      orderId: snapshot?.orderId,
+      cluster: snapshot?.cluster ?? state.cluster,
+      preservedPaymentRetry: hasPaidOrder,
       mint: mintAddr,
       hasLogo: Boolean(imageBase64),
       logoMime: imageMime,
@@ -633,27 +658,40 @@ export function DetailsStep() {
       const reason = uploadErr instanceof Error ? uploadErr.message : "Unknown error";
       console.error("[wizard] METADATA_PREPARE_FAILED — mint will not proceed", {
         attemptId,
+        orderId: snapshot?.orderId,
+        cluster: snapshot?.cluster ?? state.cluster,
+        preservedPaymentRetry: hasPaidOrder,
         mint: mintAddr,
         reason,
       });
       throw new Error(
-        `Could not prepare token metadata — mint was not started, and you have not been charged. ${reason}`,
+        hasPaidOrder
+          ? `Could not prepare token metadata — mint was not started. Your payment is preserved and retry will not charge again. ${reason}`
+          : `Could not prepare token metadata — mint was not started, and you have not been charged. ${reason}`,
       );
     }
 
     if (!res?.uri || !/^https:\/\//i.test(res.uri)) {
       console.error("[wizard] METADATA_URI_INVALID — mint will not proceed", {
         attemptId,
+        orderId: snapshot?.orderId,
+        cluster: snapshot?.cluster ?? state.cluster,
+        preservedPaymentRetry: hasPaidOrder,
         mint: mintAddr,
         res,
       });
       throw new Error(
-        "Metadata upload returned an invalid URI. Mint was not started, and you have not been charged.",
+        hasPaidOrder
+          ? "Metadata upload returned an invalid URI. Mint was not started. Your payment is preserved and retry will not charge again."
+          : "Metadata upload returned an invalid URI. Mint was not started, and you have not been charged.",
       );
     }
 
     console.info("[wizard] METADATA_URI_READY", {
       attemptId,
+      orderId: snapshot?.orderId,
+      cluster: snapshot?.cluster ?? state.cluster,
+      preservedPaymentRetry: hasPaidOrder,
       mint: mintAddr,
       uri: res.uri,
       image_url: res.image_url,
@@ -708,11 +746,18 @@ export function DetailsStep() {
     // Hoisted so BOTH the first-attempt path AND the retry path can build a
     // fresh mint keypair (random or vanity-grinded) on demand.
     const onMobile = isLikelyMobile();
-    const generateMintKeypairForRun = async (): Promise<Keypair> => {
-      if (!state.customAddress) return generateMintKeypair();
+    const generateMintKeypairForRun = async (snapshot: PendingMint, attemptId: string): Promise<Keypair> => {
+      if (!snapshot.customAddress) return generateMintKeypair();
+      console.info("[wizard] vanity generation start", {
+        runId,
+        attemptId,
+        orderId: snapshot.orderId,
+        cluster: snapshot.cluster,
+        suffix: snapshot.customAddressSuffix,
+      });
       setVanityProgress({ attempts: 0, elapsedMs: 0 });
       const handle = grindVanityMintKeypair({
-        suffix: state.customAddressSuffix.trim(),
+        suffix: snapshot.customAddressSuffix,
         caseSensitive: true,
         maxAttempts: onMobile ? MOBILE_MAX_ATTEMPTS : undefined,
         maxElapsedMs: onMobile ? MOBILE_MAX_ELAPSED_MS : undefined,
@@ -730,7 +775,24 @@ export function DetailsStep() {
       vanityHandleRef.current = handle;
       try {
         const kp = await handle.promise;
+        console.info("[wizard] vanity generation success", {
+          runId,
+          attemptId,
+          orderId: snapshot.orderId,
+          mint: kp.publicKey.toBase58(),
+          suffix: snapshot.customAddressSuffix,
+        });
         return kp;
+      } catch (vanityErr) {
+        const reason = vanityErr instanceof Error ? vanityErr.message : String(vanityErr);
+        console.error("[wizard] VANITY_GENERATION_FAILED — retry state remains clean", {
+          runId,
+          attemptId,
+          orderId: snapshot.orderId,
+          suffix: snapshot.customAddressSuffix,
+          err: vanityErr,
+        });
+        throw new Error(`Custom token address generation failed before minting started. ${reason}`);
       } finally {
         vanityHandleRef.current = null;
         if (isActiveRun(runId) && !hasTerminalCommit()) {
@@ -814,7 +876,7 @@ export function DetailsStep() {
         // single transition write for the preparing phase.
         setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
         const attemptId = nextMintAttemptId(runId, "retry");
-        const freshKeypair = await generateMintKeypairForRun();
+        const freshKeypair = await generateMintKeypairForRun(pendingMint, attemptId);
         const freshMint = freshKeypair.publicKey.toBase58();
         console.info("[wizard] retry: generated fresh mint keypair", {
           orderId: pendingMint.orderId,
@@ -828,6 +890,7 @@ export function DetailsStep() {
           attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          preservedPaymentRetry: !isDevnetTestRetry,
           lastMintAddress: freshMint,
           needsVerify: false,
         };
@@ -972,7 +1035,7 @@ export function DetailsStep() {
           feePaid: 0,
           initialSupply: supplyDigits,
         });
-        const mintKeypair = await generateMintKeypairForRun();
+        const mintKeypair = await generateMintKeypairForRun(devPending, attemptId);
         const devMint = mintKeypair.publicKey.toBase58();
         const prepared = await prepareMetadata(mintKeypair, devPending, attemptId);
         const devMintAttempt: MintAttempt = {
@@ -980,6 +1043,7 @@ export function DetailsStep() {
           attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          preservedPaymentRetry: false,
           lastMintAddress: devMint,
         };
         setPendingMint({ ...devPending, lastMintAddress: devMint });
@@ -1008,7 +1072,7 @@ export function DetailsStep() {
         feePaid: totalPrice,
         initialSupply: supplyDigits,
       });
-      const mintKeypair = await generateMintKeypairForRun();
+      const mintKeypair = await generateMintKeypairForRun(initialSnapshot, attemptId);
       const [order, prepared] = await Promise.all([
         createOrder({
           data: {
@@ -1101,6 +1165,7 @@ export function DetailsStep() {
         attemptId,
         mintKeypair: prepared.mintKeypair,
         metadata: prepared.metadata,
+        preservedPaymentRetry: false,
         lastMintAddress: mintAddress,
       };
       setPendingMint({ ...paidPending, lastMintAddress: mintAddress });

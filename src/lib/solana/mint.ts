@@ -6,6 +6,7 @@ import {
   SystemProgram,
   Transaction,
   Keypair,
+  type TransactionInstruction,
 } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -205,6 +206,38 @@ export type MintTokenResult = {
   metadataUpdateAuthority: string | null;
 };
 
+function stringifyTxError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function extractInstructionFailure(
+  err: unknown,
+  logs: string[] | null | undefined,
+  labels: string[],
+): { instructionIndex?: number; instruction?: string; raw?: unknown } {
+  const raw = err as unknown;
+  if (Array.isArray(raw) && raw[0] === "InstructionError" && typeof raw[1] === "number") {
+    return { instructionIndex: raw[1], instruction: labels[raw[1]], raw };
+  }
+  const nested = (raw as { InstructionError?: unknown } | null)?.InstructionError;
+  if (Array.isArray(nested) && typeof nested[0] === "number") {
+    return { instructionIndex: nested[0], instruction: labels[nested[0]], raw };
+  }
+  const fromLogs = logs
+    ?.map((line) => /Instruction (\d+):/.exec(line)?.[1] ?? /instruction #(\d+)/i.exec(line)?.[1])
+    .find((n): n is string => Boolean(n));
+  if (fromLogs) {
+    const instructionIndex = Number(fromLogs);
+    return { instructionIndex, instruction: labels[instructionIndex], raw };
+  }
+  return { raw };
+}
+
 /**
  * Creates a Token-2022 mint with on-chain metadata via the
  * MetadataPointer + TokenMetadata extensions, mints initial supply, and
@@ -334,13 +367,29 @@ export async function mintToken({
   const METADATA_EXTENSION_PREFIX = 4;
   const metadataLen = METADATA_EXTENSION_PREFIX + packTokenMetadata(tokenMetadata).length;
   const accountSize = baseMintLen + metadataLen;
-  const lamportsForMint = await connection.getMinimumBalanceForRentExemption(accountSize);
+  let failurePoint = "prepare";
+  let lamportsForMint = 0;
+  let lamportsForBaseMint = 0;
+  try {
+    failurePoint = "rentExemption";
+    [lamportsForMint, lamportsForBaseMint] = await Promise.all([
+      connection.getMinimumBalanceForRentExemption(accountSize),
+      connection.getMinimumBalanceForRentExemption(baseMintLen),
+    ]);
+  } catch (rentErr) {
+    console.error("[mint] rent exemption lookup failed", {
+      attemptId,
+      mint: mintPk.toBase58(),
+      accountSize,
+      baseMintLen,
+      err: rentErr,
+    });
+    throw rentErr;
+  }
 
   const supplyBI = BigInt(initialSupply);
   const factor = BigInt(10) ** BigInt(decimals);
   const baseUnits = supplyBI * factor;
-
-  let failurePoint = "prepare";
 
   async function getFreshBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     failurePoint = "getLatestBlockhash";
@@ -362,6 +411,8 @@ export async function mintToken({
       );
     }
   }
+
+  let instructionLabels: string[] = [];
 
   try {
     // STALE-MINT GUARD — if a previous (failed) attempt actually landed the
@@ -419,8 +470,14 @@ export async function mintToken({
       blockhash,
       lastValidBlockHeight,
     });
+    instructionLabels = [];
+    const addInstruction = (label: string, ix: TransactionInstruction) => {
+      instructionLabels.push(label);
+      tx.add(ix);
+    };
 
-    tx.add(
+    addInstruction(
+      "create-mint-account",
       // 1. Allocate the mint account sized for MetadataPointer + TokenMetadata.
       SystemProgram.createAccount({
         fromPubkey: payer,
@@ -429,6 +486,9 @@ export async function mintToken({
         space: baseMintLen, // metadata extension is appended after init
         programId: TOKEN_2022_PROGRAM_ID,
       }),
+    );
+    addInstruction(
+      "initialize-metadata-pointer",
       // 2. Set the metadata pointer to point at the mint itself (self-hosted metadata).
       createInitializeMetadataPointerInstruction(
         mintPk,
@@ -436,6 +496,9 @@ export async function mintToken({
         mintPk,
         TOKEN_2022_PROGRAM_ID,
       ),
+    );
+    addInstruction(
+      "initialize-mint",
       // 3. Initialize the mint (must come AFTER all extension initializers).
       //    The mint authority and freeze authority assigned here are the REAL
       //    on-chain authorities. They may be revoked later in this same tx.
@@ -446,6 +509,9 @@ export async function mintToken({
         initialFreezeAuthority, // freeze authority (handles FREEZE REVOKE below)
         TOKEN_2022_PROGRAM_ID,
       ),
+    );
+    addInstruction(
+      "initialize-token-metadata",
       // 4. Initialize the on-chain Token Metadata (name/symbol/uri + update authority).
       //    The update authority assigned here IS the real on-chain authority.
       //    Wallets and explorers will treat `initialUpdateAuthority` as the
@@ -460,27 +526,21 @@ export async function mintToken({
         symbol: metadata.symbol,
         uri: metadata.uri,
       }),
-      // 5. Pay rent for the metadata extension bytes that were just appended.
-      //    SystemProgram.transfer "tops up" the mint account so it stays rent-exempt
-      //    after the metadata extension grew the account.
     );
 
-    // The metadata account grew the on-chain account; ensure it stays rent-exempt.
-    const totalLamportsRequired = await connection.getMinimumBalanceForRentExemption(
+    console.info("[mint] MINT_RENT_AND_SIZE", {
+      attemptId,
+      mint: mintPk.toBase58(),
+      baseMintLen,
+      metadataLen,
       accountSize,
-    );
-    if (totalLamportsRequired > lamportsForMint) {
-      tx.add(
-        SystemProgram.transfer({
-          fromPubkey: payer,
-          toPubkey: mintPk,
-          lamports: totalLamportsRequired - lamportsForMint,
-        }),
-      );
-    }
+      lamportsForBaseMint,
+      lamportsForMint,
+    });
 
-    // 6. Create the ATA and mint the initial supply to it.
-    tx.add(
+    // 5. Create the ATA and mint the initial supply to it.
+    addInstruction(
+      "create-associated-token-account",
       createAssociatedTokenAccountInstruction(
         payer,
         ata,
@@ -488,6 +548,9 @@ export async function mintToken({
         mintPk,
         TOKEN_2022_PROGRAM_ID,
       ),
+    );
+    addInstruction(
+      "mint-initial-supply",
       createMintToInstruction(
         mintPk,
         ata,
@@ -513,7 +576,8 @@ export async function mintToken({
         oldAuthority: initialFreezeAuthority.toBase58(),
         newAuthority: null,
       });
-      tx.add(
+      addInstruction(
+        "revoke-freeze-authority",
         createSetAuthorityInstruction(
           mintPk,
           initialFreezeAuthority,
@@ -537,7 +601,8 @@ export async function mintToken({
         oldAuthority: initialUpdateAuthority.toBase58(),
         newAuthority: null,
       });
-      tx.add(
+      addInstruction(
+        "revoke-update-authority",
         createUpdateMetadataAuthorityInstruction({
           programId: TOKEN_2022_PROGRAM_ID,
           metadata: mintPk,
@@ -559,7 +624,8 @@ export async function mintToken({
         oldAuthority: initialMintAuthority.toBase58(),
         newAuthority: null,
       });
-      tx.add(
+      addInstruction(
+        "revoke-mint-authority",
         createSetAuthorityInstruction(
           mintPk,
           initialMintAuthority,
@@ -592,28 +658,85 @@ export async function mintToken({
       attemptId,
       mint: mintPk.toBase58(),
       instructionCount: tx.instructions.length,
+      instructionLabels,
       blockhashAgeMs: Date.now() - blockhashRequestedAt,
     });
-    if (provider.signTransaction) {
-      failurePoint = "signTransaction";
-      const signed = await provider.signTransaction(tx);
-      console.info("[mint] MINT_TX_SIGNED", {
+    failurePoint = "simulateTransaction";
+    try {
+      const simulation = await connection.simulateTransaction(tx, undefined, false);
+      const failedInstruction = extractInstructionFailure(
+        simulation.value.err,
+        simulation.value.logs,
+        instructionLabels,
+      );
+      console.info("[mint] MINT_TX_SIMULATION_RESULT", {
         attemptId,
         mint: mintPk.toBase58(),
-        blockhashAgeMs: Date.now() - blockhashRequestedAt,
+        err: simulation.value.err,
+        failedInstruction,
+        unitsConsumed: simulation.value.unitsConsumed,
+        logs: simulation.value.logs,
       });
+      if (simulation.value.err) {
+        const detail = failedInstruction.instruction
+          ? ` at ${failedInstruction.instruction}`
+          : "";
+        throw new Error(
+          `Mint transaction simulation failed${detail}: ${JSON.stringify(simulation.value.err)}`,
+        );
+      }
+    } catch (simulationErr) {
+      const logs = (simulationErr as { logs?: string[] } | null)?.logs;
+      const failedInstruction = extractInstructionFailure(simulationErr, logs, instructionLabels);
+      console.error("[mint] MINT_TX_SIMULATION_FAILED", {
+        attemptId,
+        mint: mintPk.toBase58(),
+        failedInstruction,
+        logs,
+        err: simulationErr,
+      });
+      if (logs || /simulation failed|InstructionError/i.test(stringifyTxError(simulationErr))) {
+        throw simulationErr;
+      }
+      console.warn("[mint] simulation unavailable; continuing to wallet send", {
+        attemptId,
+        reason: stringifyTxError(simulationErr),
+      });
+    }
+    try {
+      if (provider.signTransaction) {
+        failurePoint = "signTransaction";
+        const signed = await provider.signTransaction(tx);
+        console.info("[mint] MINT_TX_SIGNED", {
+          attemptId,
+          mint: mintPk.toBase58(),
+          blockhashAgeMs: Date.now() - blockhashRequestedAt,
+        });
 
-      failurePoint = "sendRawTransaction";
-      signature = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false,
-        maxRetries: 5,
+        failurePoint = "sendRawTransaction";
+        signature = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          maxRetries: 5,
+        });
+      } else if (provider.signAndSendTransaction) {
+        failurePoint = "signAndSendTransaction";
+        const res = await provider.signAndSendTransaction(tx);
+        signature = res.signature;
+      } else {
+        throw new Error("Connected wallet does not support Solana transaction signing.");
+      }
+    } catch (sendErr) {
+      const logs = (sendErr as { logs?: string[] } | null)?.logs;
+      const failedInstruction = extractInstructionFailure(sendErr, logs, instructionLabels);
+      console.error("[mint] MINT_TX_SEND_OR_SIGN_FAILED", {
+        attemptId,
+        mint: mintPk.toBase58(),
+        failurePoint,
+        failedInstruction,
+        logs,
+        err: sendErr,
       });
-    } else if (provider.signAndSendTransaction) {
-      failurePoint = "signAndSendTransaction";
-      const res = await provider.signAndSendTransaction(tx);
-      signature = res.signature;
-    } else {
-      throw new Error("Connected wallet does not support Solana transaction signing.");
+      throw sendErr;
     }
     console.info("[mint] MINT_WALLET_RETURNED", {
       n: mintPopupN,
@@ -654,9 +777,11 @@ export async function mintToken({
           const status = statuses?.value?.[0];
           if (status) {
             if (status.err) {
+              const failedInstruction = extractInstructionFailure(status.err, null, instructionLabels);
               console.error("[mint] signature landed with on-chain error", {
                 attemptId,
                 signature,
+                failedInstruction,
                 err: status.err,
               });
               onChainFailure = new Error(
@@ -811,7 +936,16 @@ export async function mintToken({
       metadataUpdateAuthority: onChainUpdateAuthority,
     };
   } catch (err) {
-    console.error("[mint] MINT_FAILED", { attemptId, cluster, failurePoint, err });
+    const logs = (err as { logs?: string[] } | null)?.logs;
+    const failedInstruction = extractInstructionFailure(err, logs, instructionLabels);
+    console.error("[mint] MINT_FAILED", {
+      attemptId,
+      cluster,
+      failurePoint,
+      failedInstruction,
+      logs,
+      err,
+    });
     // Attach `failurePoint` to the thrown error so the caller (DetailsStep)
     // can surface it in audit logs and the UI. Without this, the existing
     // `(mintErr as { failurePoint?: string }).failurePoint` reads always

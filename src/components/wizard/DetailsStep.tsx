@@ -401,7 +401,7 @@ export function DetailsStep() {
       discord: state.discord || "",
       modifyCreator: state.modifyCreator,
       creatorWalletAddress: wallet?.address ?? "",
-      tokenLogo: state.tokenLogo,
+      tokenLogo: state.tokenLogo ?? undefined,
       needsVerify: args.needsVerify,
     };
   }

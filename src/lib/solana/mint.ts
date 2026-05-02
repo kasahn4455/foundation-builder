@@ -6,6 +6,7 @@ import {
   SystemProgram,
   Transaction,
   Keypair,
+  type TransactionInstruction,
 } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -204,6 +205,38 @@ export type MintTokenResult = {
   freezeAuthority: string | null;
   metadataUpdateAuthority: string | null;
 };
+
+function stringifyTxError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function extractInstructionFailure(
+  err: unknown,
+  logs: string[] | null | undefined,
+  labels: string[],
+): { instructionIndex?: number; instruction?: string; raw?: unknown } {
+  const raw = err as unknown;
+  if (Array.isArray(raw) && raw[0] === "InstructionError" && typeof raw[1] === "number") {
+    return { instructionIndex: raw[1], instruction: labels[raw[1]], raw };
+  }
+  const nested = (raw as { InstructionError?: unknown } | null)?.InstructionError;
+  if (Array.isArray(nested) && typeof nested[0] === "number") {
+    return { instructionIndex: nested[0], instruction: labels[nested[0]], raw };
+  }
+  const fromLogs = logs
+    ?.map((line) => /Instruction (\d+):/.exec(line)?.[1] ?? /instruction #(\d+)/i.exec(line)?.[1])
+    .find((n): n is string => Boolean(n));
+  if (fromLogs) {
+    const instructionIndex = Number(fromLogs);
+    return { instructionIndex, instruction: labels[instructionIndex], raw };
+  }
+  return { raw };
+}
 
 /**
  * Creates a Token-2022 mint with on-chain metadata via the

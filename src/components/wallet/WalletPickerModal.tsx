@@ -40,7 +40,9 @@ export function WalletPickerModal() {
             <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">Connect</div>
             <h3 className="mt-1 text-xl font-semibold tracking-tight">Choose a wallet</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Connect a Solana wallet to mint your token.
+              {platform.isMobile && !platform.isInWalletBrowser
+                ? "Open this page in your wallet's in-app browser to connect."
+                : "Connect a Solana wallet to mint your token."}
             </p>
           </div>
           <button
@@ -55,12 +57,22 @@ export function WalletPickerModal() {
         <div className="mt-5 space-y-2">
           {wallets.map((w) => {
             const installed = detected[w.kind];
+            // On mobile browsers (not wallet browsers), extensions don't inject.
+            // Treat as "needs handoff" rather than "not installed".
+            const needsHandoff = platform.isMobile && !platform.isInWalletBrowser && !installed;
+            const onClick = () => {
+              if (needsHandoff) {
+                openInWalletBrowser(w.kind);
+                return;
+              }
+              void connect(w.kind).catch(() => {});
+            };
             return (
               <button
                 key={w.kind}
                 type="button"
                 disabled={isConnecting}
-                onClick={() => void connect(w.kind).catch(() => {})}
+                onClick={onClick}
                 className="btn-secondary w-full flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 text-left disabled:opacity-60"
               >
                 <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-lg">
@@ -72,6 +84,10 @@ export function WalletPickerModal() {
                 </span>
                 {installed ? (
                   <Wallet className="h-4 w-4 text-success" />
+                ) : needsHandoff ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <ExternalLink className="h-3.5 w-3.5" /> Open
+                  </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                     <Download className="h-3.5 w-3.5" /> Install
@@ -82,7 +98,14 @@ export function WalletPickerModal() {
           })}
         </div>
 
-        <p className="mt-5 text-[11px] text-muted-foreground text-center">
+        {platform.isMobile && !platform.isInWalletBrowser ? (
+          <p className="mt-4 text-[11px] text-muted-foreground text-center leading-relaxed">
+            On mobile, browser extensions aren't available. If your wallet is already installed,
+            tapping above will open this page inside your wallet's app.
+          </p>
+        ) : null}
+
+        <p className="mt-3 text-[11px] text-muted-foreground text-center">
           By connecting you agree to the platform terms. We never request seed phrases.
         </p>
       </div>

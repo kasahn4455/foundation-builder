@@ -112,6 +112,14 @@ export function CreationModal({
   }
 
   function openExplorer() {
+    // Prefer the URL frozen into the parent's final success snapshot — that
+    // way the link the user clicks on the completed page is byte-identical
+    // to the one logged at finalization time, regardless of any subsequent
+    // re-render of this modal.
+    if (explorerUrl) {
+      window.open(explorerUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (!mintAddress) return;
     const suffix = cluster === "mainnet" ? "" : `?cluster=${cluster}`;
     window.open(`https://solscan.io/token/${mintAddress}${suffix}`, "_blank", "noopener,noreferrer");
@@ -122,7 +130,7 @@ export function CreationModal({
     // query string, so we just deep-link to the create-pool page and ask the
     // user to paste the mint address (which we already copied / show above).
     window.open(
-      "https://raydium.io/liquidity/create-pool/",
+      raydiumUrl ?? "https://raydium.io/liquidity/create-pool/",
       "_blank",
       "noopener,noreferrer",
     );

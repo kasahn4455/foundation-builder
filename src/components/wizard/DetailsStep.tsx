@@ -238,10 +238,36 @@ export function DetailsStep() {
       feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
       cluster: args.cluster,
     };
-    console.info("[wizard] final success state committed", committed);
+    console.info("[wizard] final result object creation", {
+      runId,
+      orderId: committed.orderId,
+      mintAddress: committed.mintAddress,
+      ataAddress: committed.ataAddress,
+      tokenSignature: committed.tokenSignature,
+      paymentSignature: committed.paymentSignature,
+      cluster: committed.cluster,
+      feePaid: committed.feePaid,
+    });
+    console.info("[wizard] final completion state commit", { runId, source: "commitFinalSuccess" });
+    // Stop the vanity worker (if any late progress callback is queued) BEFORE
+    // committing success, so the success page never re-renders with a late
+    // vanityProgress update underneath it.
+    vanityHandleRef.current?.cancel();
+    vanityHandleRef.current = null;
+    setVanityProgress(null);
+    // Atomic commit: clear pendingMint AND flip to success in the same React
+    // batch by using a single setFlow + a microtask-free setPendingMint. The
+    // success snapshot is the single source of truth from this point on; no
+    // later async callback may mutate it.
     setPendingMint(null);
     setFlow((prev) => {
-      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") return prev;
+      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") {
+        console.warn("[wizard] duplicate completion event ignored", {
+          runId,
+          reason: "success-already-committed-in-flow",
+        });
+        return prev;
+      }
       console.info("[wizard] flow transition", { runId, from: prev.stage, to: "success", label: "final-success-commit" });
       return {
         stage: "success",
@@ -295,6 +321,11 @@ export function DetailsStep() {
         revokeUpdate: args.revokeUpdate,
         mintKeypair: args.mintKeypair,
         metadata: args.metadata,
+      });
+      console.info("[wizard] phantom approval success", {
+        runId,
+        orderId: args.orderId,
+        signature: mintRes.signature,
       });
       console.info("[wizard] mint success", {
         orderId: args.orderId,
@@ -965,6 +996,18 @@ export function DetailsStep() {
   const finalResult = flow.terminalSnapshot?.kind === "success" ? flow.terminalSnapshot.result : null;
   const stableErrorMessage = flow.terminalSnapshot?.kind === "error" ? flow.terminalSnapshot.message : undefined;
   const modalStage: CreationStage = flow.stage === "idle" ? "preparing" : flow.stage;
+  // Once success is committed, the completed page MUST render exclusively from
+  // the frozen result snapshot. No live wizard state (cluster, totalPrice,
+  // vanityProgress, vanitySuffix) may leak into props after this point — that
+  // was the source of the final-page flicker after Phantom approval.
+  const isFinalSuccess = finalResult !== null;
+  if (isFinalSuccess) {
+    console.info("[wizard] final page render source", {
+      source: "frozen-snapshot",
+      orderId: finalResult.orderId,
+      mintAddress: finalResult.mintAddress,
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -1118,10 +1161,10 @@ export function DetailsStep() {
         errorMessage={stableErrorMessage}
         tokenName={state.tokenName}
         tokenSymbol={state.tokenSymbol}
-        totalSol={finalResult?.feePaid ?? totalPrice}
-        cluster={finalResult?.cluster ?? state.cluster}
-        vanityProgress={vanityProgress ?? undefined}
-        vanitySuffix={state.customAddress ? state.customAddressSuffix : undefined}
+        totalSol={isFinalSuccess ? finalResult.feePaid : totalPrice}
+        cluster={isFinalSuccess ? finalResult.cluster : state.cluster}
+        vanityProgress={isFinalSuccess ? undefined : vanityProgress ?? undefined}
+        vanitySuffix={isFinalSuccess ? undefined : state.customAddress ? state.customAddressSuffix : undefined}
         onCancelVanity={() => {
           vanityHandleRef.current?.cancel();
         }}

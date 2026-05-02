@@ -264,23 +264,39 @@ export const verifyPayment = createServerFn({ method: "POST" })
       recipient: recipientB58,
       senderIdx,
       recipientIdx,
-      recipientPreBalance: recipientIdx >= 0 ? parsed.meta?.preBalances?.[recipientIdx] : null,
-      recipientPostBalance: recipientIdx >= 0 ? parsed.meta?.postBalances?.[recipientIdx] : null,
-      recipientDelta,
-      transferredToRecipient,
+      recipientPreBalance: recipientPreBalance ?? null,
+      recipientPostBalance: recipientPostBalance ?? null,
       receivedLamports,
     });
 
     if (senderIdx < 0) {
       console.warn("[orders] verifyPayment: sender not in tx accounts (continuing — may be loaded address)");
     }
-    if (recipientIdx < 0 && transferredToRecipient === 0) {
+    if (recipientIdx < 0) {
+      console.warn("[orders] verifyPayment failed", {
+        order_id: order.id,
+        payment_signature: data.payment_signature,
+        expectedLamports,
+        sender: senderB58,
+        recipient: recipientB58,
+        recipientIdx,
+        reason: "recipient-not-found",
+      });
       throw new Error("Platform recipient not found in transaction");
     }
-    if (senderB58 === recipientB58) {
-      throw new Error(
-        "Platform wallet equals connected wallet — check PLATFORM_WALLET_* env (cannot pay yourself)",
-      );
+    if (!Number.isFinite(receivedLamports)) {
+      console.warn("[orders] verifyPayment failed", {
+        order_id: order.id,
+        payment_signature: data.payment_signature,
+        expectedLamports,
+        sender: senderB58,
+        recipient: recipientB58,
+        recipientIdx,
+        recipientPreBalance: recipientPreBalance ?? null,
+        recipientPostBalance: recipientPostBalance ?? null,
+        reason: "recipient-balance-unavailable",
+      });
+      throw new Error("Could not read platform recipient balance change");
     }
 
     if (receivedLamports < expectedLamports) {

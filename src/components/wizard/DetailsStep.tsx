@@ -12,6 +12,9 @@ import {
   generateMintKeypair,
 } from "@/lib/solana/mint";
 import { computeAddonFee, computeTotalFee, BASE_FEE_SOL } from "@/lib/pricing";
+import { explorerTokenUrl } from "@/lib/solana/cluster";
+
+const RAYDIUM_CREATE_POOL_URL = "https://raydium.io/liquidity/create-pool/";
 import {
   grindVanityMintKeypair,
   validateVanitySuffix,
@@ -39,15 +42,28 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-type FinalSuccessResult = {
+/**
+ * The single, immutable result object that drives the completed page.
+ *
+ * IMPORTANT: once a value of this shape is committed via `finalizeSuccess`,
+ * it must NEVER be rebuilt or mutated. The completed UI renders exclusively
+ * from this snapshot — no live wizard state, no late async callback, and no
+ * subsequent setFlow may replace or patch its fields. This is the contract
+ * that keeps the post-Phantom-approval page stable.
+ */
+type FinalSuccessResult = Readonly<{
   orderId: string;
   mintAddress: string;
+  ataAddress: string;
   paymentSignature: string | undefined;
   tokenSignature: string;
-  ataAddress: string;
-  feePaid: number;
   cluster: "devnet" | "mainnet";
-};
+  feePaid: number;
+  tokenName: string;
+  tokenSymbol: string;
+  explorerUrl: string;
+  raydiumUrl: string;
+}>;
 
 type TerminalSnapshot =
   | { kind: "success"; result: FinalSuccessResult }
@@ -88,6 +104,14 @@ export function DetailsStep() {
   const nextRunIdRef = useRef(0);
   const hasCommittedSuccessRef = useRef(false);
   const hasCommittedErrorRef = useRef(false);
+  /**
+   * The single source of truth for "is the completed page already locked in?".
+   * Distinct from `hasCommittedSuccessRef` (kept for back-compat with existing
+   * audit logs) so any new caller has one obvious gate to consult. Once true,
+   * NO further async callback — phantom signature, save-token-result, vanity
+   * progress, late RPC settle — may transition the flow.
+   */
+  const hasFinalizedRef = useRef(false);
   const mintCompletionInFlightRef = useRef(false);
   const [pendingMint, setPendingMint] = useState<{
     orderId: string;
@@ -212,69 +236,109 @@ export function DetailsStep() {
     });
   }
 
+  /**
+   * THE single, authoritative success-commit code path.
+   *
+   * Every other helper (`commitFinalSuccess`) MUST funnel through this
+   * function. Once it has run successfully once, `hasFinalizedRef.current`
+   * is true and any further call — from a late phantom signature settle, a
+   * duplicate save-token-result resolution, a stale vanity progress event,
+   * or a re-entered runCreation — is ignored with a single audit log line.
+   *
+   * The argument `snapshot` is the immutable result object; this function
+   * does not rebuild it, does not mutate it, and does not read live wizard
+   * state. The completed page renders from it directly.
+   */
+  function finalizeSuccess(runId: number, snapshot: FinalSuccessResult) {
+    if (!isActiveRun(runId)) {
+      console.warn("[wizard] duplicate finalization ignored", {
+        runId,
+        activeRunId: activeRunIdRef.current,
+        reason: "stale-run",
+        orderId: snapshot.orderId,
+      });
+      return;
+    }
+    if (hasFinalizedRef.current || hasTerminalCommit()) {
+      console.warn("[wizard] duplicate finalization ignored", {
+        runId,
+        reason: hasFinalizedRef.current ? "already-finalized" : "terminal-already-committed",
+        orderId: snapshot.orderId,
+      });
+      return;
+    }
+
+    hasFinalizedRef.current = true;
+    hasCommittedSuccessRef.current = true;
+    console.info("[wizard] final success committed", {
+      runId,
+      source: "finalizeSuccess",
+      orderId: snapshot.orderId,
+      mintAddress: snapshot.mintAddress,
+    });
+
+    // Tear down any in-flight side-effects BEFORE flipping state so the
+    // completed page never observes a late vanity progress tick or a
+    // pending-mint object underneath it.
+    vanityHandleRef.current?.cancel();
+    vanityHandleRef.current = null;
+    setVanityProgress(null);
+    setPendingMint(null);
+
+    setFlow({
+      stage: "success",
+      paymentSignature: snapshot.paymentSignature,
+      terminalSnapshot: { kind: "success", result: snapshot },
+    });
+  }
+
   function commitFinalSuccess(
     runId: number,
     args: NonNullable<typeof pendingMint>,
     mintRes: Awaited<ReturnType<typeof mintToken>>,
   ) {
-    if (!isActiveRun(runId) || hasTerminalCommit()) {
-      console.warn("[wizard] duplicate completion ignored", {
+    if (!isActiveRun(runId) || hasTerminalCommit() || hasFinalizedRef.current) {
+      console.warn("[wizard] duplicate finalization ignored", {
         runId,
         activeRunId: activeRunIdRef.current,
         alreadyCommitted: hasTerminalCommit(),
+        alreadyFinalized: hasFinalizedRef.current,
         orderId: args.orderId,
         mint: mintRes.mintAddress,
+        source: "commitFinalSuccess-precheck",
       });
       return;
     }
 
-    hasCommittedSuccessRef.current = true;
-    const committed: FinalSuccessResult = {
+    const paymentSignature =
+      args.paymentSignature === "devnet-test" ? undefined : args.paymentSignature;
+    const snapshot: FinalSuccessResult = Object.freeze({
       orderId: args.orderId,
       mintAddress: mintRes.mintAddress,
-      paymentSignature: args.paymentSignature === "devnet-test" ? undefined : args.paymentSignature,
-      tokenSignature: mintRes.signature,
       ataAddress: mintRes.ataAddress,
-      feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
+      paymentSignature,
+      tokenSignature: mintRes.signature,
       cluster: args.cluster,
-    };
-    console.info("[wizard] final result object creation", {
+      feePaid: args.orderId === "devnet-test" ? 0 : totalPrice,
+      tokenName: args.metadata.name,
+      tokenSymbol: args.metadata.symbol,
+      explorerUrl: explorerTokenUrl(mintRes.mintAddress, args.cluster),
+      raydiumUrl: RAYDIUM_CREATE_POOL_URL,
+    });
+    console.info("[wizard] final result object built", {
       runId,
-      orderId: committed.orderId,
-      mintAddress: committed.mintAddress,
-      ataAddress: committed.ataAddress,
-      tokenSignature: committed.tokenSignature,
-      paymentSignature: committed.paymentSignature,
-      cluster: committed.cluster,
-      feePaid: committed.feePaid,
+      orderId: snapshot.orderId,
+      mintAddress: snapshot.mintAddress,
+      ataAddress: snapshot.ataAddress,
+      tokenSignature: snapshot.tokenSignature,
+      paymentSignature: snapshot.paymentSignature,
+      cluster: snapshot.cluster,
+      feePaid: snapshot.feePaid,
+      explorerUrl: snapshot.explorerUrl,
+      raydiumUrl: snapshot.raydiumUrl,
     });
-    console.info("[wizard] final completion state commit", { runId, source: "commitFinalSuccess" });
-    // Stop the vanity worker (if any late progress callback is queued) BEFORE
-    // committing success, so the success page never re-renders with a late
-    // vanityProgress update underneath it.
-    vanityHandleRef.current?.cancel();
-    vanityHandleRef.current = null;
-    setVanityProgress(null);
-    // Atomic commit: clear pendingMint AND flip to success in the same React
-    // batch by using a single setFlow + a microtask-free setPendingMint. The
-    // success snapshot is the single source of truth from this point on; no
-    // later async callback may mutate it.
-    setPendingMint(null);
-    setFlow((prev) => {
-      if (prev.stage === "success" && prev.terminalSnapshot?.kind === "success") {
-        console.warn("[wizard] duplicate completion event ignored", {
-          runId,
-          reason: "success-already-committed-in-flow",
-        });
-        return prev;
-      }
-      console.info("[wizard] flow transition", { runId, from: prev.stage, to: "success", label: "final-success-commit" });
-      return {
-        stage: "success",
-        paymentSignature: committed.paymentSignature,
-        terminalSnapshot: { kind: "success", result: committed },
-      };
-    });
+
+    finalizeSuccess(runId, snapshot);
   }
 
   async function completeMint(runId: number, args: NonNullable<typeof pendingMint>): Promise<boolean> {
@@ -978,6 +1042,7 @@ export function DetailsStep() {
     setActionLocked(true);
     hasCommittedSuccessRef.current = false;
     hasCommittedErrorRef.current = false;
+    hasFinalizedRef.current = false;
     mintCompletionInFlightRef.current = false;
     console.info("[wizard] create lock acquired", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {
@@ -1159,10 +1224,12 @@ export function DetailsStep() {
         mintAddress={finalResult?.mintAddress}
         paymentSignature={finalResult?.paymentSignature ?? flow.paymentSignature}
         errorMessage={stableErrorMessage}
-        tokenName={state.tokenName}
-        tokenSymbol={state.tokenSymbol}
+        tokenName={isFinalSuccess ? finalResult.tokenName : state.tokenName}
+        tokenSymbol={isFinalSuccess ? finalResult.tokenSymbol : state.tokenSymbol}
         totalSol={isFinalSuccess ? finalResult.feePaid : totalPrice}
         cluster={isFinalSuccess ? finalResult.cluster : state.cluster}
+        explorerUrl={isFinalSuccess ? finalResult.explorerUrl : undefined}
+        raydiumUrl={isFinalSuccess ? finalResult.raydiumUrl : undefined}
         vanityProgress={isFinalSuccess ? undefined : vanityProgress ?? undefined}
         vanitySuffix={isFinalSuccess ? undefined : state.customAddress ? state.customAddressSuffix : undefined}
         onCancelVanity={() => {

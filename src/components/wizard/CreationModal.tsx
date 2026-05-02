@@ -37,6 +37,14 @@ export type CreationModalProps = {
   tokenSymbol?: string;
   totalSol?: number;
   cluster?: "devnet" | "mainnet";
+  /**
+   * When the parent has committed a final immutable success snapshot, it
+   * passes the precomputed explorer / Raydium URLs from that snapshot here.
+   * The modal renders these directly instead of recomputing from `cluster` /
+   * `mintAddress` so the completed page is byte-stable across re-renders.
+   */
+  explorerUrl?: string;
+  raydiumUrl?: string;
   /** Live progress while the vanity-suffix grinder is running. */
   vanityProgress?: { attempts: number; elapsedMs: number };
   /** The suffix the user requested, shown in the progress UI. */
@@ -57,6 +65,8 @@ export function CreationModal({
   tokenSymbol,
   totalSol,
   cluster = "devnet",
+  explorerUrl,
+  raydiumUrl,
   vanityProgress,
   vanitySuffix,
   onCancelVanity,
@@ -102,6 +112,14 @@ export function CreationModal({
   }
 
   function openExplorer() {
+    // Prefer the URL frozen into the parent's final success snapshot — that
+    // way the link the user clicks on the completed page is byte-identical
+    // to the one logged at finalization time, regardless of any subsequent
+    // re-render of this modal.
+    if (explorerUrl) {
+      window.open(explorerUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (!mintAddress) return;
     const suffix = cluster === "mainnet" ? "" : `?cluster=${cluster}`;
     window.open(`https://solscan.io/token/${mintAddress}${suffix}`, "_blank", "noopener,noreferrer");
@@ -112,7 +130,7 @@ export function CreationModal({
     // query string, so we just deep-link to the create-pool page and ask the
     // user to paste the mint address (which we already copied / show above).
     window.open(
-      "https://raydium.io/liquidity/create-pool/",
+      raydiumUrl ?? "https://raydium.io/liquidity/create-pool/",
       "_blank",
       "noopener,noreferrer",
     );

@@ -65,6 +65,8 @@ export function CreationModal({
   tokenSymbol,
   totalSol,
   cluster = "devnet",
+  explorerUrl,
+  raydiumUrl,
   vanityProgress,
   vanitySuffix,
   onCancelVanity,

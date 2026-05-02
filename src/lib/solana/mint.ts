@@ -936,7 +936,16 @@ export async function mintToken({
       metadataUpdateAuthority: onChainUpdateAuthority,
     };
   } catch (err) {
-    console.error("[mint] MINT_FAILED", { attemptId, cluster, failurePoint, err });
+    const logs = (err as { logs?: string[] } | null)?.logs;
+    const failedInstruction = extractInstructionFailure(err, logs, instructionLabels);
+    console.error("[mint] MINT_FAILED", {
+      attemptId,
+      cluster,
+      failurePoint,
+      failedInstruction,
+      logs,
+      err,
+    });
     // Attach `failurePoint` to the thrown error so the caller (DetailsStep)
     // can surface it in audit logs and the UI. Without this, the existing
     // `(mintErr as { failurePoint?: string }).failurePoint` reads always

@@ -1042,6 +1042,7 @@ export function DetailsStep() {
     setActionLocked(true);
     hasCommittedSuccessRef.current = false;
     hasCommittedErrorRef.current = false;
+    hasFinalizedRef.current = false;
     mintCompletionInFlightRef.current = false;
     console.info("[wizard] create lock acquired", { runId });
     console.info("[wizard] CREATE_TOKEN_HANDLER_START", {

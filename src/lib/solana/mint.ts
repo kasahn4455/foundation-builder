@@ -230,7 +230,22 @@ export async function mintToken({
   metadata,
 }: MintTokenArgs): Promise<MintTokenResult> {
   const rpcUrl = rpcForCluster(cluster);
+  // Single attempt id so every log line for this mint can be correlated
+  // when multiple users (or retries) run concurrently in production.
+  const attemptId = Math.random().toString(36).slice(2, 10);
   console.info("[mint] mintToken cluster=", cluster, "rpc=", rpcUrl);
+  console.info("[mint] MINT_ATTEMPT_START", {
+    attemptId,
+    cluster,
+    mint: mintKeypair.publicKey.toBase58(),
+    payerAddress,
+    decimals,
+    initialSupply,
+    revokeFreeze,
+    revokeMint,
+    revokeUpdate,
+    metadataUri: metadata.uri,
+  });
   const connection = new Connection(rpcUrl, "confirmed");
   const payer = new PublicKey(assertSolanaAddress(payerAddress, "Payer wallet address"));
 
@@ -242,6 +257,11 @@ export async function mintToken({
     false,
     TOKEN_2022_PROGRAM_ID,
   );
+  console.info("[mint] MINT_KEYPAIR_AND_ATA_DERIVED", {
+    attemptId,
+    mint: mintPk.toBase58(),
+    ata: ata.toBase58(),
+  });
 
   // ---------------------------------------------------------------------------
   // Authority decisions (single source of truth for ALL three authorities).

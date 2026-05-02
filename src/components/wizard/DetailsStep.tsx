@@ -973,12 +973,16 @@ export function DetailsStep() {
         // message + the preserved payment signature, and Retry will re-run completeMint only
         // (see runCreation()'s `if (pendingMint)` guard).
         const msg = describeMintError(mintErr, true);
+        const failurePoint =
+          (mintErr as { failurePoint?: string } | null)?.failurePoint ??
+          (mintErr instanceof Error ? mintErr.name : "unknown");
         console.error("[wizard] PAYMENT_OK_MINT_FAILED — payment preserved, retry will not recharge", {
           orderId: mintAttempt.orderId,
           paymentSignature: mintAttempt.paymentSignature,
           mint: mintAttempt.mintKeypair.publicKey.toBase58(),
           cluster: mintAttempt.cluster,
           retryPath: "completeMint-only",
+          failurePoint,
           err: mintErr,
         });
         commitFinalError(runId, msg, "mint-failed-after-payment");

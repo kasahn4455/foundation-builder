@@ -88,6 +88,17 @@ type PendingMint = {
   revokeFreeze: boolean;
   revokeMint: boolean;
   revokeUpdate: boolean;
+  tokenName: string;
+  tokenSymbol: string;
+  description: string;
+  socialsEnabled: boolean;
+  website: string;
+  twitter: string;
+  telegram: string;
+  discord: string;
+  modifyCreator: boolean;
+  creatorWalletAddress: string;
+  tokenLogo?: File;
   lastMintAddress?: string;
   /**
    * When true, server-side payment verification has not yet succeeded for
@@ -454,43 +465,47 @@ export function DetailsStep() {
    * initialization time. The keypair is supplied by the caller so that the
    * vanity grinder can run first when Custom Token Address is enabled.
    */
-  async function prepareMetadata(mintKeypair: Keypair, attemptId?: string): Promise<{
+  async function prepareMetadata(mintKeypair: Keypair, snapshot?: PendingMint, attemptId?: string): Promise<{
     mintKeypair: Keypair;
     metadata: { name: string; symbol: string; uri: string };
   }> {
     const mintAddr = mintKeypair.publicKey.toBase58();
+    const tokenName = snapshot?.tokenName ?? state.tokenName.trim();
+    const tokenSymbol = snapshot?.tokenSymbol ?? state.tokenSymbol.trim();
+    const tokenLogo = snapshot?.tokenLogo ?? state.tokenLogo;
+    const socialsEnabled = snapshot?.socialsEnabled ?? state.socialsEnabled;
 
     // Validate the logo BEFORE base64-encoding so a huge/wrong-type file
     // surfaces a clean error instead of OOM-ing the encoder or producing a
     // confusing zod failure on the server.
     let imageBase64: string | undefined;
     let imageMime: string | undefined;
-    if (state.tokenLogo) {
+    if (tokenLogo) {
       const MAX_LOGO_BYTES = 5 * 1024 * 1024; // matches server-side cap
       const ALLOWED_MIME = /^image\/(png|jpeg|jpg|gif|webp|svg\+xml)$/i;
-      if (state.tokenLogo.size === 0) {
+      if (tokenLogo.size === 0) {
         throw new Error("Token logo file is empty. Please re-upload the image.");
       }
-      if (state.tokenLogo.size > MAX_LOGO_BYTES) {
+      if (tokenLogo.size > MAX_LOGO_BYTES) {
         throw new Error(
-          `Token logo is too large (${(state.tokenLogo.size / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
+          `Token logo is too large (${(tokenLogo.size / 1024 / 1024).toFixed(2)} MB). Max 5 MB.`,
         );
       }
-      if (!state.tokenLogo.type || !ALLOWED_MIME.test(state.tokenLogo.type)) {
+      if (!tokenLogo.type || !ALLOWED_MIME.test(tokenLogo.type)) {
         throw new Error(
-          `Unsupported logo format "${state.tokenLogo.type || "unknown"}". Use PNG, JPG, GIF, WEBP, or SVG.`,
+          `Unsupported logo format "${tokenLogo.type || "unknown"}". Use PNG, JPG, GIF, WEBP, or SVG.`,
         );
       }
-      imageBase64 = await fileToBase64(state.tokenLogo);
-      imageMime = state.tokenLogo.type;
+      imageBase64 = await fileToBase64(tokenLogo);
+      imageMime = tokenLogo.type;
     }
 
-    const socials = state.socialsEnabled
+    const socials = socialsEnabled
       ? {
-          website: state.website || "",
-          twitter: state.twitter || "",
-          telegram: state.telegram || "",
-          discord: state.discord || "",
+          website: snapshot?.website ?? state.website ?? "",
+          twitter: snapshot?.twitter ?? state.twitter ?? "",
+          telegram: snapshot?.telegram ?? state.telegram ?? "",
+          discord: snapshot?.discord ?? state.discord ?? "",
         }
       : undefined;
 
@@ -504,11 +519,12 @@ export function DetailsStep() {
     //
     //  - Not selected: default creator "MemeMinting" (project attribution).
     //  - Selected:     attribute the connected wallet as the creator.
-    const creator = state.modifyCreator
+    const modifyCreator = snapshot?.modifyCreator ?? state.modifyCreator;
+    const creator = modifyCreator
       ? {
-          name: state.tokenName.trim() || "Custom Creator",
-          site: state.socialsEnabled ? state.website || "" : "",
-          address: wallet?.address ?? "",
+          name: tokenName || "Custom Creator",
+          site: socialsEnabled ? snapshot?.website ?? state.website ?? "" : "",
+          address: snapshot?.creatorWalletAddress ?? wallet?.address ?? "",
         }
       : {
           name: "MemeMinting",
@@ -521,8 +537,8 @@ export function DetailsStep() {
       mint: mintAddr,
       hasLogo: Boolean(imageBase64),
       logoMime: imageMime,
-      socialsEnabled: state.socialsEnabled,
-      modifyCreator: state.modifyCreator,
+      socialsEnabled,
+      modifyCreator,
     });
 
     let res: Awaited<ReturnType<typeof uploadTokenMetadata>>;
@@ -530,9 +546,9 @@ export function DetailsStep() {
       res = await uploadTokenMetadata({
         data: {
           mint_address: mintAddr,
-          name: state.tokenName.trim(),
-          symbol: state.tokenSymbol.trim(),
-          description: state.description || "",
+          name: tokenName,
+          symbol: tokenSymbol,
+          description: snapshot?.description ?? state.description ?? "",
           image_base64: imageBase64,
           image_mime: imageMime,
           external_url: socials?.website || "",
@@ -576,8 +592,8 @@ export function DetailsStep() {
     return {
       mintKeypair,
       metadata: {
-        name: state.tokenName.trim(),
-        symbol: state.tokenSymbol.trim(),
+        name: tokenName,
+        symbol: tokenSymbol,
         uri: res.uri,
       },
     };

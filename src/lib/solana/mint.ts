@@ -658,8 +658,51 @@ export async function mintToken({
       attemptId,
       mint: mintPk.toBase58(),
       instructionCount: tx.instructions.length,
+      instructionLabels,
       blockhashAgeMs: Date.now() - blockhashRequestedAt,
     });
+    failurePoint = "simulateTransaction";
+    try {
+      const simulation = await connection.simulateTransaction(tx, undefined, false);
+      const failedInstruction = extractInstructionFailure(
+        simulation.value.err,
+        simulation.value.logs,
+        instructionLabels,
+      );
+      console.info("[mint] MINT_TX_SIMULATION_RESULT", {
+        attemptId,
+        mint: mintPk.toBase58(),
+        err: simulation.value.err,
+        failedInstruction,
+        unitsConsumed: simulation.value.unitsConsumed,
+        logs: simulation.value.logs,
+      });
+      if (simulation.value.err) {
+        const detail = failedInstruction.instruction
+          ? ` at ${failedInstruction.instruction}`
+          : "";
+        throw new Error(
+          `Mint transaction simulation failed${detail}: ${JSON.stringify(simulation.value.err)}`,
+        );
+      }
+    } catch (simulationErr) {
+      const logs = (simulationErr as { logs?: string[] } | null)?.logs;
+      const failedInstruction = extractInstructionFailure(simulationErr, logs, instructionLabels);
+      console.error("[mint] MINT_TX_SIMULATION_FAILED", {
+        attemptId,
+        mint: mintPk.toBase58(),
+        failedInstruction,
+        logs,
+        err: simulationErr,
+      });
+      if (logs || /simulation failed|InstructionError/i.test(stringifyTxError(simulationErr))) {
+        throw simulationErr;
+      }
+      console.warn("[mint] simulation unavailable; continuing to wallet send", {
+        attemptId,
+        reason: stringifyTxError(simulationErr),
+      });
+    }
     if (provider.signTransaction) {
       failurePoint = "signTransaction";
       const signed = await provider.signTransaction(tx);

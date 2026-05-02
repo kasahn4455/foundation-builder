@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Globe, Twitter, Send, MessageCircle } from "lucide-react";
 import { useWizard } from "./WizardContext";
 import { useWallet } from "@/components/wallet/WalletContext";

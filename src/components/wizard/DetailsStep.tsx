@@ -448,6 +448,18 @@ export function DetailsStep() {
     }
     mintCompletionInFlightRef.current = true;
     setFlowStage(runId, "creating", "mint-started");
+    console.info("[wizard] PAID_MINT_ATTEMPT_START", {
+      runId,
+      attemptId: args.attemptId,
+      orderId: args.orderId,
+      cluster: args.cluster,
+      preservedPaymentRetry: args.preservedPaymentRetry,
+      paymentSignature: args.paymentSignature,
+      customAddress: args.customAddress,
+      customAddressSuffix: args.customAddress ? args.customAddressSuffix : undefined,
+      metadataUri: args.metadata.uri,
+      mint: args.mintKeypair.publicKey.toBase58(),
+    });
     console.info("[wizard] mint started", {
       runId,
       orderId: args.orderId,
@@ -833,6 +845,7 @@ export function DetailsStep() {
           attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          preservedPaymentRetry: !isDevnetTestRetry,
           lastMintAddress: freshMint,
           needsVerify: false,
         };
@@ -985,6 +998,7 @@ export function DetailsStep() {
           attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          preservedPaymentRetry: false,
           lastMintAddress: devMint,
         };
         setPendingMint({ ...devPending, lastMintAddress: devMint });
@@ -1106,6 +1120,7 @@ export function DetailsStep() {
         attemptId,
         mintKeypair: prepared.mintKeypair,
         metadata: prepared.metadata,
+        preservedPaymentRetry: false,
         lastMintAddress: mintAddress,
       };
       setPendingMint({ ...paidPending, lastMintAddress: mintAddress });

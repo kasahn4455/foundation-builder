@@ -81,16 +81,53 @@ function installUrl(kind: WalletKind): string {
   return kind === "phantom" ? "https://phantom.app/" : "https://backpack.app/";
 }
 
+function detectPlatform(): Platform {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return {
+      isMobile: false,
+      isIOS: false,
+      isAndroid: false,
+      isInWalletBrowser: false,
+      hasExtensionEnvironment: false,
+    };
+  }
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && "ontouchend" in document);
+  const isAndroid = /Android/i.test(ua);
+  const isMobile = isIOS || isAndroid || /Mobi|Mobile/i.test(ua);
+  const isInWalletBrowser =
+    /Phantom/i.test(ua) ||
+    /Backpack/i.test(ua) ||
+    !!(window as unknown as { phantom?: unknown }).phantom ||
+    !!(window as unknown as { backpack?: unknown }).backpack;
+  // Browser extensions only inject on desktop browsers; mobile Safari/Chrome don't load them.
+  const hasExtensionEnvironment = !isMobile;
+  return { isMobile, isIOS, isAndroid, isInWalletBrowser, hasExtensionEnvironment };
+}
+
+function buildDeeplink(kind: WalletKind): string {
+  if (typeof window === "undefined") return "";
+  const url = window.location.href;
+  if (kind === "phantom") {
+    // Phantom universal link to open the current page in Phantom's in-app browser.
+    return `https://phantom.app/ul/browse/${encodeURIComponent(url)}?ref=${encodeURIComponent(window.location.origin)}`;
+  }
+  // Backpack deeplink for in-app browser.
+  return `https://backpack.app/ul/v1/browse/${encodeURIComponent(url)}?ref=${encodeURIComponent(window.location.origin)}`;
+}
+
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [provider, setProvider] = useState<SolanaProvider | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPickerOpen, setPickerOpen] = useState(false);
   const [detected, setDetected] = useState({ phantom: false, backpack: false });
+  const [platform, setPlatform] = useState<Platform>(() => detectPlatform());
 
   // Detect installed wallets after mount (avoid SSR mismatch)
   useEffect(() => {
     if (typeof window === "undefined") return;
+    setPlatform(detectPlatform());
     const check = () =>
       setDetected({
         phantom: !!getProvider("phantom"),

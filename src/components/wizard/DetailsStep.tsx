@@ -707,7 +707,7 @@ export function DetailsStep() {
       // as one in the modal.
       const isDevnetTestRetry =
         pendingMint.cluster === "devnet" && pendingMint.paymentSignature === "devnet-test";
-      const staleMint = pendingMint.mintKeypair.publicKey.toBase58();
+      const staleMint = pendingMint.lastMintAddress ?? "none";
       console.info("[wizard] retry: rebuilding mint flow from scratch", {
         orderId: pendingMint.orderId,
         paymentSignature: pendingMint.paymentSignature,
@@ -770,6 +770,7 @@ export function DetailsStep() {
         // setFlowStage no-ops when the stage is unchanged, so this is the
         // single transition write for the preparing phase.
         setFlowStage(runId, "preparing", "retry-preparing-fresh-mint");
+        const attemptId = nextMintAttemptId(runId, "retry");
         const freshKeypair = await generateMintKeypairForRun();
         const freshMint = freshKeypair.publicKey.toBase58();
         console.info("[wizard] retry: generated fresh mint keypair", {
@@ -778,17 +779,19 @@ export function DetailsStep() {
           freshMint,
           regenerated: staleMint !== freshMint,
         });
-        const prepared = await prepareMetadata(freshKeypair);
-        const refreshed = {
+        const prepared = await prepareMetadata(freshKeypair, pendingMint, attemptId);
+        const refreshed: MintAttempt = {
           ...pendingMint,
+          attemptId,
           mintKeypair: prepared.mintKeypair,
           metadata: prepared.metadata,
+          lastMintAddress: freshMint,
           needsVerify: false,
         };
         // Persist refreshed state BEFORE the mint tx so that if the new
         // attempt also fails, the next retry won't try to reuse this
         // keypair either — the next retry will regenerate again.
-        setPendingMint(refreshed);
+        setPendingMint({ ...pendingMint, lastMintAddress: freshMint, needsVerify: false });
         console.info("[wizard] retry: building fresh mint transaction", {
           orderId: refreshed.orderId,
           mint: freshMint,

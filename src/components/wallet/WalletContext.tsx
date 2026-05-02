@@ -30,16 +30,26 @@ export type WalletInfo = {
   kind: WalletKind;
 };
 
+export type Platform = {
+  isMobile: boolean;
+  isIOS: boolean;
+  isAndroid: boolean;
+  isInWalletBrowser: boolean;
+  hasExtensionEnvironment: boolean;
+};
+
 type WalletCtx = {
   wallet: WalletInfo | null;
   provider: SolanaProvider | null;
   isConnecting: boolean;
   isPickerOpen: boolean;
   detected: { phantom: boolean; backpack: boolean };
+  platform: Platform;
   openPicker: () => void;
   closePicker: () => void;
   connect: (kind: WalletKind) => Promise<WalletInfo>;
   disconnect: () => void;
+  openInWalletBrowser: (kind: WalletKind) => void;
 };
 
 const Ctx = createContext<WalletCtx | null>(null);

@@ -996,6 +996,18 @@ export function DetailsStep() {
   const finalResult = flow.terminalSnapshot?.kind === "success" ? flow.terminalSnapshot.result : null;
   const stableErrorMessage = flow.terminalSnapshot?.kind === "error" ? flow.terminalSnapshot.message : undefined;
   const modalStage: CreationStage = flow.stage === "idle" ? "preparing" : flow.stage;
+  // Once success is committed, the completed page MUST render exclusively from
+  // the frozen result snapshot. No live wizard state (cluster, totalPrice,
+  // vanityProgress, vanitySuffix) may leak into props after this point — that
+  // was the source of the final-page flicker after Phantom approval.
+  const isFinalSuccess = finalResult !== null;
+  if (isFinalSuccess) {
+    console.info("[wizard] final page render source", {
+      source: "frozen-snapshot",
+      orderId: finalResult.orderId,
+      mintAddress: finalResult.mintAddress,
+    });
+  }
 
   return (
     <div className="space-y-6">

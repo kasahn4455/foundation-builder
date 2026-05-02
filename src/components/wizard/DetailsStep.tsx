@@ -561,6 +561,11 @@ export function DetailsStep() {
     const tokenSymbol = snapshot?.tokenSymbol ?? state.tokenSymbol.trim();
     const tokenLogo = snapshot?.tokenLogo ?? state.tokenLogo;
     const socialsEnabled = snapshot?.socialsEnabled ?? state.socialsEnabled;
+    const hasPaidOrder = Boolean(
+      snapshot &&
+        snapshot.paymentSignature !== "prepayment" &&
+        snapshot.paymentSignature !== "devnet-test",
+    );
 
     // Validate the logo BEFORE base64-encoding so a huge/wrong-type file
     // surfaces a clean error instead of OOM-ing the encoder or producing a
@@ -621,6 +626,9 @@ export function DetailsStep() {
 
     console.info("[wizard] uploading metadata", {
       attemptId,
+      orderId: snapshot?.orderId,
+      cluster: snapshot?.cluster ?? state.cluster,
+      preservedPaymentRetry: hasPaidOrder,
       mint: mintAddr,
       hasLogo: Boolean(imageBase64),
       logoMime: imageMime,
@@ -650,27 +658,40 @@ export function DetailsStep() {
       const reason = uploadErr instanceof Error ? uploadErr.message : "Unknown error";
       console.error("[wizard] METADATA_PREPARE_FAILED — mint will not proceed", {
         attemptId,
+        orderId: snapshot?.orderId,
+        cluster: snapshot?.cluster ?? state.cluster,
+        preservedPaymentRetry: hasPaidOrder,
         mint: mintAddr,
         reason,
       });
       throw new Error(
-        `Could not prepare token metadata — mint was not started, and you have not been charged. ${reason}`,
+        hasPaidOrder
+          ? `Could not prepare token metadata — mint was not started. Your payment is preserved and retry will not charge again. ${reason}`
+          : `Could not prepare token metadata — mint was not started, and you have not been charged. ${reason}`,
       );
     }
 
     if (!res?.uri || !/^https:\/\//i.test(res.uri)) {
       console.error("[wizard] METADATA_URI_INVALID — mint will not proceed", {
         attemptId,
+        orderId: snapshot?.orderId,
+        cluster: snapshot?.cluster ?? state.cluster,
+        preservedPaymentRetry: hasPaidOrder,
         mint: mintAddr,
         res,
       });
       throw new Error(
-        "Metadata upload returned an invalid URI. Mint was not started, and you have not been charged.",
+        hasPaidOrder
+          ? "Metadata upload returned an invalid URI. Mint was not started. Your payment is preserved and retry will not charge again."
+          : "Metadata upload returned an invalid URI. Mint was not started, and you have not been charged.",
       );
     }
 
     console.info("[wizard] METADATA_URI_READY", {
       attemptId,
+      orderId: snapshot?.orderId,
+      cluster: snapshot?.cluster ?? state.cluster,
+      preservedPaymentRetry: hasPaidOrder,
       mint: mintAddr,
       uri: res.uri,
       image_url: res.image_url,

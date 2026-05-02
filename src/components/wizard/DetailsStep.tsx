@@ -42,15 +42,28 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-type FinalSuccessResult = {
+/**
+ * The single, immutable result object that drives the completed page.
+ *
+ * IMPORTANT: once a value of this shape is committed via `finalizeSuccess`,
+ * it must NEVER be rebuilt or mutated. The completed UI renders exclusively
+ * from this snapshot — no live wizard state, no late async callback, and no
+ * subsequent setFlow may replace or patch its fields. This is the contract
+ * that keeps the post-Phantom-approval page stable.
+ */
+type FinalSuccessResult = Readonly<{
   orderId: string;
   mintAddress: string;
+  ataAddress: string;
   paymentSignature: string | undefined;
   tokenSignature: string;
-  ataAddress: string;
-  feePaid: number;
   cluster: "devnet" | "mainnet";
-};
+  feePaid: number;
+  tokenName: string;
+  tokenSymbol: string;
+  explorerUrl: string;
+  raydiumUrl: string;
+}>;
 
 type TerminalSnapshot =
   | { kind: "success"; result: FinalSuccessResult }

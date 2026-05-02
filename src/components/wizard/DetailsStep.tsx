@@ -748,7 +748,9 @@ export function DetailsStep() {
       return;
     }
 
-    setFlow((prev) => ({ ...prev, paymentSignature: undefined, terminalSnapshot: undefined }));
+    // (No additional setFlow here — the start-of-flow `setFlow` above already
+    // cleared `paymentSignature`/`terminalSnapshot` for the non-pendingMint
+    // path. A second write here would just produce a redundant render.)
 
     // Validate inputs
     const supplyDigits = state.totalSupply.replace(/[^0-9]/g, "");

@@ -270,7 +270,17 @@ export const verifyPayment = createServerFn({ method: "POST" })
     });
 
     if (senderIdx < 0) {
-      console.warn("[orders] verifyPayment: sender not in tx accounts (continuing — may be loaded address)");
+      console.warn("[orders] verifyPayment failed", {
+        order_id: order.id,
+        payment_signature: data.payment_signature,
+        expectedLamports,
+        sender: senderB58,
+        recipient: recipientB58,
+        senderIdx,
+        recipientIdx,
+        reason: "sender-not-found",
+      });
+      throw new Error("Sender wallet not found in payment transaction");
     }
     if (recipientIdx < 0) {
       console.warn("[orders] verifyPayment failed", {
@@ -302,8 +312,15 @@ export const verifyPayment = createServerFn({ method: "POST" })
     if (receivedLamports < expectedLamports) {
       console.warn("[orders] verifyPayment underpayment decision", {
         order_id: order.id,
+        payment_signature: data.payment_signature,
         expectedLamports,
+        sender: senderB58,
+        recipient: recipientB58,
+        recipientIdx,
+        recipientPreBalance: recipientPreBalance ?? null,
+        recipientPostBalance: recipientPostBalance ?? null,
         receivedLamports,
+        reason: "recipient-increase-below-expected",
         decision: "REJECT",
       });
       throw new Error(
@@ -343,7 +360,15 @@ export const verifyPayment = createServerFn({ method: "POST" })
 
     console.info("[orders] verifyPayment ok", {
       order_id: order.id,
-      lamports: receivedLamports,
+      payment_signature: data.payment_signature,
+      expectedLamports,
+      sender: senderB58,
+      recipient: recipientB58,
+      recipientIdx,
+      recipientPreBalance: recipientPreBalance ?? null,
+      recipientPostBalance: recipientPostBalance ?? null,
+      receivedLamports,
+      reason: "recipient-increase-meets-expected",
       decision: "ACCEPT",
     });
     return { ok: true, order_id: order.id, already_verified: false as const };
